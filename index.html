@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
+  <meta name="theme-color" content="#7B48F5" />
+  <title>Умскул — подбор программы</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎓</text></svg>" />
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+  <div class="app" id="app">
+    <header class="topbar" id="topbar">
+      <button class="icon-btn" id="backBtn" type="button" aria-label="Назад" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+
+      <div class="progress" id="progress" hidden>
+        <div class="progress__head">
+          <span class="progress__label" id="progressLabel">Вопрос 1 из 5</span>
+          <span class="progress__pct" id="progressPct">0%</span>
+        </div>
+        <div class="progress__track">
+          <div class="progress__fill" id="progressFill"></div>
+        </div>
+        <div class="progress__dots" id="progressDots"></div>
+      </div>
+
+      <div class="brand" id="brand">
+        <span class="brand__logo">Умскул</span>
+      </div>
+    </header>
+
+    <main class="screen" id="screen"></main>
+
+    <footer class="footer" id="footer" hidden>
+      <button class="btn btn--primary" id="cta" type="button">Далее</button>
+      <p class="footer__hint" id="ctaHint"></p>
+    </footer>
+  </div>
+
+  <div class="confetti" id="confetti" aria-hidden="true"></div>
+
+  <script src="assets/app.js"></script>
+</body>
+</html>
