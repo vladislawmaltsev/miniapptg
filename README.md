@@ -40,7 +40,10 @@
 index.html            разметка оболочки: топбар, прогресс, экран, футер
 assets/styles.css     дизайн-система Умскул, тёмная тема, анимации
 assets/app.js         состояние, шаги, навигация, интеграция с Telegram
-bot/bot.py            пример приёма ответов на стороне бота (aiogram 3)
+assets/config.js      адрес приёмника ответов и доп. поля лида
+server/webhook.py     приёмник: проверка подписи initData и пересылка лида
+server/test_webhook.py тесты приёмника
+bot/bot.py            вариант с reply-клавиатурой и sendData (aiogram 3)
 ```
 
 ## Локальный запуск
@@ -59,31 +62,89 @@ python3 -m http.server 4173
 `Settings → Pages → Build and deployment → GitHub Actions`, после пуша в основную ветку
 мини-апп будет доступен по `https://<user>.github.io/<repo>/`.
 
-## Подключение к боту
+## Запуск только из сообщения бота (BotFather)
 
-Мини-апп возвращает ответы через `Telegram.WebApp.sendData()`. Это работает только
-если приложение открыто кнопкой **reply-клавиатуры** (`KeyboardButton` с `web_app`).
-При запуске из меню бота или инлайн-кнопки `sendData` недоступен — там нужно слать
-ответы на свой бэкенд с проверкой `initData`.
+Telegram сам показывает мини-апп в трёх местах — все три нужно оставить выключенными:
 
-Пример payload:
+| Поверхность | Где видно | Что делать |
+|---|---|---|
+| Menu button | кнопка рядом с полем ввода, в шапке чата | не настраивать; если уже стоит — сбросить в BotFather (`Bot Settings → Menu Button`) или через API `setChatMenuButton` с `{"type":"commands"}` |
+| Main Mini App | кнопка «Открыть приложение» в профиле бота, ссылка `t.me/<bot>?startapp=` | не включать `Bot Settings → Configure Mini App` |
+| Attachment menu | скрепка в списке чатов | включается только по одобрению Telegram — ничего не делать |
+
+Нужный вариант — **Direct Link Mini App**: в BotFather команда `/newapp` → выбрать бота →
+короткое имя (например `quiz`) → название, описание, картинка → URL мини-аппа.
+Получится ссылка вида `https://t.me/<bot_username>/quiz`.
+
+Такая ссылка нигде не появляется сама: мини-апп открывается, только когда бот пришлёт её
+в сообщении — обычной ссылкой или URL-кнопкой. Именно это и нужно, если ботами управляет
+конструктор, а не вы напрямую.
+
+Контекст передаётся через `?startapp=`:
+
+```
+https://t.me/<bot_username>/quiz?startapp={{lead_token}}
+```
+
+Значение прилетает в мини-апп как `initDataUnsafe.start_param` и уходит вместе с ответами —
+по нему бэкенд связывает анкету с нужным диалогом и клиентом в CRM.
+
+## Как ответы попадают в CRM
+
+`sendData()` работает только при запуске с reply-клавиатуры. При запуске по прямой ссылке
+его нет, поэтому основной путь — HTTP:
+
+```
+мини-апп ──POST(ответы + initData)──> приёмник ──> вебхук бот-конструктора ──> retailCRM
+```
+
+Приёмник (`server/webhook.py`) проверяет подпись `initData` секретом бота: без этого
+любой мог бы отправить произвольный лид от чужого Telegram ID. После проверки он
+собирает плоский лид и пересылает его на `FORWARD_URL`.
+
+Настройка мини-аппа — `assets/config.js`:
+
+```js
+window.UMSKUL_CONFIG = {
+  submitUrl: 'https://api.example.com/lead',
+  submitTimeout: 15000,
+  extra: { funnel: 'tg_quiz' }
+};
+```
+
+Пока `submitUrl` пустой, мини-апп работает по-старому: пробует `sendData()`, а вне
+Telegram копирует ответы в буфер обмена.
+
+Запуск приёмника:
+
+```bash
+BOT_TOKEN=123:ABC \
+FORWARD_URL=https://<вебхук бот-конструктора> \
+ALLOWED_ORIGIN=https://<user>.github.io \
+python server/webhook.py
+
+python server/test_webhook.py   # 8 тестов: подпись, срок годности, сборка лида
+```
+
+Что уходит на `FORWARD_URL`:
 
 ```json
 {
-  "v": 1,
-  "source": "umskul_qualification",
+  "telegram_id": 42,
+  "telegram_username": "anya",
+  "telegram_name": "Аня П.",
+  "start_param": "lead_777",
   "role": "parent",
   "grade": 10,
   "exam": "ege",
   "goal_unit": "score",
-  "subjects": [
-    { "id": "soc", "name": "Обществознание", "goal": 90 },
-    { "id": "hist", "name": "История", "goal": 90 }
-  ],
   "goal_avg": 90,
-  "preparation": "umschool",
+  "preparation": "tutor",
   "recommendation": "Рекомендуем интенсив на 90+",
-  "ts": "2026-07-27T22:10:29.458Z"
+  "subject_ids": ["soc", "hist"],
+  "subjects_text": "Обществознание — 90 (баллы), История — 90 (баллы)",
+  "filled_at": "2026-07-27T22:10:29.458Z",
+  "raw": { }
 }
 ```
 
@@ -91,7 +152,14 @@ python3 -m http.server 4173
 `goal_unit` — `score` (баллы ЕГЭ) | `mark` (оценка 3–5);
 `preparation` — `none` | `self` | `tutor` | `umschool`.
 
-Приём на стороне бота — `bot/bot.py`:
+Плоские поля рассчитаны на то, чтобы их можно было разложить по переменным бота
+и полям клиента в retailCRM без дополнительной обработки.
+
+## Вариант с reply-клавиатурой
+
+Если бот управляется напрямую (свой код, не конструктор), можно обойтись без приёмника:
+открыть мини-апп кнопкой reply-клавиатуры, тогда `sendData()` доставит ответы боту
+служебным сообщением `web_app_data`. Пример — `bot/bot.py` (aiogram 3):
 
 ```bash
 pip install aiogram

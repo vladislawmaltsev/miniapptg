@@ -7,6 +7,23 @@
   var tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
   var inTelegram = !!(tg && tg.platform && tg.platform !== 'unknown');
 
+  var cfg = window.UMSKUL_CONFIG || {};
+
+  /**
+   * Контекст запуска. start_param — то, что бот подставил в ссылку
+   * t.me/<bot>/<app>?startapp=<...>: по нему бэкенд связывает анкету
+   * с нужным диалогом/клиентом.
+   */
+  var launch = (function () {
+    var unsafe = (tg && tg.initDataUnsafe) || {};
+    var qs = new URLSearchParams(window.location.search);
+    return {
+      startParam: unsafe.start_param || qs.get('tgWebAppStartParam') || qs.get('startapp') || null,
+      queryId: unsafe.query_id || null,
+      user: unsafe.user || null
+    };
+  })();
+
   /* ----------------------------------------------------------- данные -- */
 
   var ROLES = [
@@ -80,7 +97,9 @@
     subjects: [],
     goals: {},
     prep: null,
-    sent: false
+    sent: false,
+    busy: false,
+    error: null
   };
 
   try {
@@ -135,7 +154,7 @@
     if (!inTelegram || !tg.HapticFeedback) return;
     try {
       if (type === 'select') tg.HapticFeedback.selectionChanged();
-      else if (type === 'success') tg.HapticFeedback.notificationOccurred('success');
+      else if (type === 'success' || type === 'error' || type === 'warning') tg.HapticFeedback.notificationOccurred(type);
       else tg.HapticFeedback.impactOccurred(type || 'light');
     } catch (e) { /* старые клиенты */ }
   }
@@ -523,11 +542,30 @@
             return h('li', { class: 'plan__item', text: t });
           }))
         ]),
-        h('p', { class: 'note', text: inTelegram ? 'Нажмите кнопку ниже — ответы уйдут в чат с ботом.' : 'Мини-апп открыт вне Telegram: отправка в бот недоступна.' })
+        h('p', { class: 'note', text: transport() === 'clipboard'
+          ? 'Мини-апп открыт вне Telegram: отправка в бот недоступна.'
+          : 'Нажмите кнопку ниже — ответы уйдут менеджеру Умскул.' })
       ]),
-      cta: inTelegram ? 'Отправить и получить подборку' : 'Скопировать ответы',
-      valid: true,
+      cta: transport() === 'clipboard' ? 'Скопировать ответы' : 'Отправить и получить подборку',
+      valid: function () { return !state.busy; },
       result: true
+    };
+  }
+
+  /** Экран после успешной отправки по HTTP. */
+  function stepSent() {
+    return {
+      node: h('div', { class: 'step hero' }, [
+        mascot(),
+        h('h1', { class: 'hero__title', text: 'Анкета отправлена!' }),
+        h('p', { class: 'hero__text', text: who(
+          'Куратор Умскул уже видит твои ответы и напишет в этот чат с подборкой курсов.',
+          'Куратор Умскул уже видит ваши ответы и напишет в этот чат с подборкой курсов.'
+        ) })
+      ]),
+      cta: inTelegram ? 'Вернуться в чат' : 'Готово',
+      valid: true,
+      sent: true
     };
   }
 
@@ -588,7 +626,8 @@
 
   function build() {
     if (state.step === -1) return stepIntro();
-    if (state.step >= TOTAL) return stepResult();
+    if (state.step > TOTAL) return stepSent();
+    if (state.step === TOTAL) return stepResult();
     return BUILDERS[STEP_IDS[state.step]]();
   }
 
@@ -609,7 +648,7 @@
     syncChrome();
     syncCta();
 
-    if (state.step >= TOTAL && !state.sent) {
+    if (state.step === TOTAL && !state.sent) {
       haptic('success');
       confetti();
     }
@@ -619,7 +658,7 @@
     var isQuestion = state.step >= 0 && state.step < TOTAL;
     el.progress.hidden = !isQuestion;
     el.brand.hidden = isQuestion;
-    el.back.hidden = state.step <= -1;
+    el.back.hidden = state.step <= -1 || state.step > TOTAL;
 
     if (isQuestion) {
       var done = state.step;
@@ -644,13 +683,13 @@
 
     // Кнопка «назад» в клиенте Telegram
     if (inTelegram && tg.BackButton) {
-      if (state.step > -1) tg.BackButton.show(); else tg.BackButton.hide();
+      if (state.step > -1 && state.step <= TOTAL) tg.BackButton.show(); else tg.BackButton.hide();
     }
   }
 
   function syncCta() {
     var valid = typeof current.valid === 'function' ? current.valid() : current.valid;
-    var text = current.cta;
+    var text = state.error && current.result ? 'Отправить ещё раз' : current.cta;
 
     if (useMainButton()) {
       document.body.classList.add('native-cta');
@@ -669,6 +708,7 @@
   }
 
   function hintFor(valid) {
+    if (state.error) return state.error + ' — проверьте связь и попробуйте ещё раз';
     if (state.step === 2 && !valid) return 'Отметьте хотя бы один предмет';
     if (state.step === 3) return 'Можно вернуться и изменить в любой момент';
     return '';
@@ -679,10 +719,12 @@
   /* ------------------------------------------------------- навигация --- */
 
   function next() {
+    if (state.busy) return;
     var valid = typeof current.valid === 'function' ? current.valid() : current.valid;
     if (!valid) { haptic('rigid'); return; }
 
-    if (state.step >= TOTAL) { submit(); return; }
+    if (state.step > TOTAL) { if (inTelegram) tg.close(); return; }
+    if (state.step === TOTAL) { submit(); return; }
 
     // Пропускаем шаг цели, если предметов почему-то нет
     state.step += 1;
@@ -691,9 +733,11 @@
   }
 
   function back() {
+    if (state.busy || state.step > TOTAL) return;
     if (state.step <= -1) { if (inTelegram) tg.close(); return; }
     state.step -= 1;
     state.sent = false;
+    state.error = null;
     haptic('light');
     render(-1);
   }
@@ -716,24 +760,54 @@
       goal_avg: averageGoal(),
       preparation: state.prep,
       recommendation: recommendation(exam),
-      ts: new Date().toISOString()
+      ts: new Date().toISOString(),
+      context: Object.assign({ start_param: launch.startParam }, cfg.extra || {})
     };
   }
 
-  function submit() {
-    var data = JSON.stringify(payload());
+  /** Конверт для бэкенда: сырой initData нужен серверу для проверки подписи. */
+  function envelope() {
+    return {
+      init_data: (tg && tg.initData) || '',
+      start_param: launch.startParam,
+      query_id: launch.queryId,
+      data: payload()
+    };
+  }
 
-    if (inTelegram && typeof tg.sendData === 'function') {
+  /**
+   * Транспорт:
+   *  http     — POST на submitUrl; работает при любом способе запуска;
+   *  senddata — Telegram.WebApp.sendData(), только для reply-клавиатуры;
+   *  clipboard — фолбэк для обычного браузера.
+   */
+  function transport() {
+    if (cfg.submitUrl) return 'http';
+    if (inTelegram && typeof tg.sendData === 'function') return 'senddata';
+    return 'clipboard';
+  }
+
+  function finishTelegramSession() {
+    try { localStorage.removeItem(STORAGE_KEY); } catch (e) { /* no-op */ }
+    if (inTelegram && typeof tg.disableClosingConfirmation === 'function') tg.disableClosingConfirmation();
+  }
+
+  function submit() {
+    if (state.busy) return;
+    var mode = transport();
+
+    if (mode === 'senddata') {
       state.sent = true;
       haptic('success');
-      try { localStorage.removeItem(STORAGE_KEY); } catch (e) { /* no-op */ }
-      // анкета заполнена — подтверждение выхода больше не нужно
-      if (typeof tg.disableClosingConfirmation === 'function') tg.disableClosingConfirmation();
-      tg.sendData(data); // Telegram сам закроет мини-апп после отправки
+      finishTelegramSession();
+      tg.sendData(JSON.stringify(payload())); // Telegram сам закроет мини-апп
       return;
     }
 
-    // Вне Telegram — отдаём ответы в буфер обмена, чтобы поток не обрывался
+    if (mode === 'http') { submitHttp(); return; }
+
+    // Вне Telegram и без submitUrl — отдаём ответы в буфер обмена
+    var data = JSON.stringify(payload());
     var done = function () {
       el.ctaHint.textContent = 'Ответы скопированы в буфер обмена';
       haptic('success');
@@ -745,6 +819,55 @@
       console.log(data);
       done();
     }
+  }
+
+  function submitHttp() {
+    setBusy(true);
+    state.error = null;
+
+    var ctrl = typeof AbortController === 'function' ? new AbortController() : null;
+    var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, cfg.submitTimeout || 15000);
+
+    fetch(cfg.submitUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(envelope()),
+      signal: ctrl ? ctrl.signal : undefined
+    }).then(function (res) {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.text();
+    }).then(function () {
+      clearTimeout(timer);
+      setBusy(false);
+      state.sent = true;
+      finishTelegramSession();
+      haptic('success');
+      state.step = TOTAL + 1;
+      render(1);
+    }, function (err) {
+      clearTimeout(timer);
+      setBusy(false);
+      state.error = err && err.name === 'AbortError' ? 'Не дождались ответа сервера' : 'Не удалось отправить';
+      haptic('error');
+      syncCta();
+    });
+  }
+
+  function setBusy(busy) {
+    state.busy = busy;
+    if (useMainButton()) {
+      if (busy) {
+        if (typeof tg.MainButton.showProgress === 'function') tg.MainButton.showProgress(true);
+        tg.MainButton.disable();
+      } else {
+        if (typeof tg.MainButton.hideProgress === 'function') tg.MainButton.hideProgress();
+        tg.MainButton.enable();
+      }
+    } else {
+      el.cta.disabled = busy;
+      el.cta.textContent = busy ? 'Отправляем…' : (state.error ? 'Отправить ещё раз' : current.cta);
+    }
+    if (busy) el.ctaHint.textContent = 'Отправляем ответы…';
   }
 
   /* ---------------------------------------------------------- конфетти -- */
