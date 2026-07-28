@@ -89,20 +89,79 @@ https://t.me/<bot_username>/quiz?startapp={{lead_token}}
 Значение прилетает в мини-апп как `initDataUnsafe.start_param` и уходит вместе с ответами —
 по нему бэкенд связывает анкету с нужным диалогом и клиентом в CRM.
 
-## Как ответы попадают в CRM
+## Как ответы попадают в retailCRM
 
-`sendData()` работает только при запуске с reply-клавиатуры. При запуске по прямой ссылке
-его нет, поэтому основной путь — HTTP:
+`sendData()` работает только при запуске с reply-клавиатуры, а мини-апп открывается
+по прямой ссылке. Поэтому ответы идут по HTTP через приёмник в сценарий бот-конструктора,
+а тот пишет их в кастомные поля клиента действием «Обновить контакт»:
 
 ```
-мини-апп ──POST(ответы + initData)──> приёмник ──> вебхук бот-конструктора ──> retailCRM
+мини-апп ──POST(ответы + initData)──> server/webhook.py ──> сценарий bot-marketing ──> поля клиента retailCRM
 ```
 
-Приёмник (`server/webhook.py`) проверяет подпись `initData` секретом бота: без этого
-любой мог бы отправить произвольный лид от чужого Telegram ID. После проверки он
-собирает плоский лид и пересылает его на `FORWARD_URL`.
+Приёмник проверяет подпись `initData` секретом бота — иначе кто угодно мог бы прислать
+лид от чужого Telegram ID — и доставляет анкету одним из двух каналов.
 
-Настройка мини-аппа — `assets/config.js`:
+### Канал 1: внешний запрос к сессии сценария (основной)
+
+Сценарий стоит на шаге, который ждёт внешний запрос, и продолжает диалог сразу после
+записи полей.
+
+1. Бот отправляет сообщение с URL-кнопкой:
+   `https://t.me/<bot>/quiz?startapp=@{scenarioSession.hash}`
+2. Следующий шаг сценария ждёт внешний запрос с кодом `quiz`.
+3. Приёмник шлёт `POST {BM_API_BASE}/tunnelSessions/<hash>/request`
+   с `code=quiz` и параметрами `params[...]`.
+4. В ветке этого запроса — действие «Обновить контакт»; значения берутся
+   из `@{externalRequest.<параметр>}`.
+5. Дальше сценарий можно ветвить условиями («Внешний запрос» → название параметра),
+   например по `exam` или `goal_avg`.
+
+Ограничения из документации: обработка запроса не должна превышать 10 секунд,
+между началом и концом обработки не должно быть шагов с задержкой.
+
+### Канал 2: триггер по ссылке (запасной)
+
+Работает, даже если сессия сценария уже завершилась — например, анкету открыли через час.
+Бот отдаёт ссылку с `?startapp=@{chat.hash}`, приёмник дёргает
+`https://<инстанс>/l/h/<код триггера>/c/<chat.hash>`, значения доступны как `@{query.<параметр>}`.
+Внутри триггера — то же действие «Обновить контакт».
+
+Чтобы работали оба канала, отдавайте оба хэша через дефис
+(`?startapp=@{scenarioSession.hash}-@{chat.hash}`) и поставьте `START_PARAM_FORMAT=session-chat`:
+приёмник сперва постучится в сессию, а при ошибках `not_expecting_requests`,
+`session_not_active` и подобных сам уйдёт в триггер.
+
+### Поля в retailCRM
+
+Создайте кастомные поля клиента и укажите их коды в действии «Обновить контакт»
+(ключ — `CF_<код поля>`):
+
+| Поле | Код (пример) | Тип | Значение из анкеты |
+|---|---|---|---|
+| Роль | `umskul_role` | Строка | `@{externalRequest.role_text}` → «Ученик» / «Родитель» |
+| Класс | `umskul_grade` | Число | `@{externalRequest.grade}` → 5–11 |
+| Экзамен | `umskul_exam` | Строка | `@{externalRequest.exam_text}` → «ЕГЭ» / «ОГЭ» / «Школьная программа» |
+| Предметы | `umskul_subjects` | Строка | `@{externalRequest.subjects}` → «Обществознание, История» |
+| Цели по предметам | `umskul_goals` | Текст | `@{externalRequest.goals_text}` → «Обществознание — 90, История — 90» |
+| Средняя цель | `umskul_goal_avg` | Число | `@{externalRequest.goal_avg}` |
+| Подготовка | `umskul_prep` | Строка | `@{externalRequest.preparation_text}` → «С репетитором» |
+| Дата анкеты | `umskul_filled_at` | Дата | `@{externalRequest.filled_at}` |
+
+Приёмник шлёт и машинные коды, и читаемые подписи: `*_text` удобно класть в поля CRM,
+а коды (`role`, `exam`, `preparation`, `goal_unit`, `subject_ids`) — использовать в условиях
+сценария. Полный список параметров:
+
+```
+role, role_text, grade, exam, exam_text, goal_unit, goal_unit_text, goal_avg,
+preparation, preparation_text, recommendation, subjects, subject_ids,
+subjects_count, goals_text, filled_at,
+telegram_id, telegram_username, telegram_name
+```
+
+### Настройка
+
+Мини-апп — `assets/config.js`:
 
 ```js
 window.UMSKUL_CONFIG = {
@@ -112,48 +171,25 @@ window.UMSKUL_CONFIG = {
 };
 ```
 
-Пока `submitUrl` пустой, мини-апп работает по-старому: пробует `sendData()`, а вне
+Пока `submitUrl` пустой, мини-апп работает автономно: пробует `sendData()`, а вне
 Telegram копирует ответы в буфер обмена.
 
-Запуск приёмника:
+Приёмник:
 
 ```bash
 BOT_TOKEN=123:ABC \
-FORWARD_URL=https://<вебхук бот-конструктора> \
 ALLOWED_ORIGIN=https://<user>.github.io \
+BM_REQUEST_CODE=quiz \
+START_PARAM_FORMAT=session-chat \
+BM_TRIGGER_URL='https://retailcrm.bot-marketing.com/l/h/<код триггера>/c/{chat_hash}' \
 python server/webhook.py
 
-python server/test_webhook.py   # 8 тестов: подпись, срок годности, сборка лида
+python server/test_webhook.py   # 20 тестов: подпись, доставка, фолбэк, формат параметров
 ```
 
-Что уходит на `FORWARD_URL`:
-
-```json
-{
-  "telegram_id": 42,
-  "telegram_username": "anya",
-  "telegram_name": "Аня П.",
-  "start_param": "lead_777",
-  "role": "parent",
-  "grade": 10,
-  "exam": "ege",
-  "goal_unit": "score",
-  "goal_avg": 90,
-  "preparation": "tutor",
-  "recommendation": "Рекомендуем интенсив на 90+",
-  "subject_ids": ["soc", "hist"],
-  "subjects_text": "Обществознание — 90 (баллы), История — 90 (баллы)",
-  "filled_at": "2026-07-27T22:10:29.458Z",
-  "raw": { }
-}
-```
-
-Значения полей: `role` — `student` | `parent`; `exam` — `ege` | `oge` | `school`;
-`goal_unit` — `score` (баллы ЕГЭ) | `mark` (оценка 3–5);
-`preparation` — `none` | `self` | `tutor` | `umschool`.
-
-Плоские поля рассчитаны на то, чтобы их можно было разложить по переменным бота
-и полям клиента в retailCRM без дополнительной обработки.
+Остальные переменные окружения перечислены в докстринге `server/webhook.py`:
+`DELIVERY` (`auto` | `session` | `trigger` | `forward` | `log`), `BM_API_BASE`,
+`BM_RETURN_RESPONSE`, `FORWARD_URL`, `INIT_DATA_MAX_AGE`, `REQUIRE_SIGNATURE`, `PORT`.
 
 ## Вариант с reply-клавиатурой
 
