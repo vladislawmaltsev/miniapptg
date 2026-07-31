@@ -88,11 +88,15 @@ class BuildLead(unittest.TestCase):
         "init_data": "",
         "start_param": "lead_777",
         "data": {
+            "track": "full",
             "role": "parent",
             "grade": 10,
             "exam": "ege",
             "goal_unit": "score",
             "goal_avg": 90,
+            "level": "structure",
+            "priorities": ["explain", "control"],
+            "online_experience": "never",
             "preparation": "tutor",
             "recommendation": "Рекомендуем интенсив на 90+",
             "subjects": [
@@ -117,6 +121,39 @@ class BuildLead(unittest.TestCase):
         self.assertEqual(lead["exam_text"], "ЕГЭ")
         self.assertEqual(lead["preparation_text"], "С репетитором")
         self.assertEqual(lead["goal_unit_text"], "баллы")
+        self.assertEqual(lead["track_text"], "Подробная диагностика")
+        self.assertEqual(lead["level_text"], "Нет структуры в знаниях")
+        self.assertEqual(lead["online_experience_text"], "Опыта не было")
+        self.assertEqual(
+            lead["priorities_text"], "Понятное объяснение тем, Контроль и дисциплина"
+        )
+
+    def test_express_track_omits_long_branch_answers(self):
+        envelope = {
+            "data": {
+                "track": "express",
+                "role": "student",
+                "grade": 11,
+                "exam": "ege",
+                "subjects": [{"id": "unknown", "name": "Пока не знаю", "goal": 80}],
+            }
+        }
+        lead = build_lead(envelope, {})
+        self.assertEqual(lead["track_text"], "Экспресс-диагностика")
+        self.assertEqual(lead["level_text"], "")
+        self.assertEqual(lead["priorities"], [])
+        params = to_params(lead)
+        # пустые ответы длинной ветки в сценарий не уезжают
+        self.assertNotIn("level_text", params)
+        self.assertNotIn("priorities", params)
+        self.assertEqual(params["subjects"], "Пока не знаю")
+
+    def test_school_preparation_label(self):
+        envelope = json.loads(json.dumps(self.envelope))
+        envelope["data"]["preparation"] = "school"
+        self.assertEqual(
+            build_lead(envelope, {})["preparation_text"], "Будет готовиться в школе"
+        )
 
     def test_marks_labelled_for_oge(self):
         envelope = json.loads(json.dumps(self.envelope))
@@ -197,6 +234,13 @@ class Delivery(unittest.TestCase):
         self.assertEqual(call["fields"]["params[exam_text]"], "ЕГЭ")
         self.assertEqual(call["fields"]["params[grade]"], "10")
         self.assertEqual(call["fields"]["params[subject_ids]"], "soc,hist")
+        self.assertEqual(call["fields"]["params[track_text]"], "Подробная диагностика")
+        self.assertEqual(call["fields"]["params[level_text]"], "Нет структуры в знаниях")
+        self.assertEqual(call["fields"]["params[priorities]"], "explain,control")
+        self.assertEqual(
+            call["fields"]["params[priorities_text]"],
+            "Понятное объяснение тем, Контроль и дисциплина",
+        )
         self.assertEqual(call["fields"]["params[telegram_id]"], "42")
         self.assertNotIn("params[raw]", call["fields"])
 

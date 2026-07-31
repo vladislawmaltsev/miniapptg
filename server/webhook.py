@@ -98,9 +98,32 @@ PREP_TEXT = {
     "none": "Пока никак",
     "self": "Готовится самостоятельно",
     "tutor": "С репетитором",
+    "school": "Будет готовиться в школе",
     "umschool": "Уже в Умскул",
 }
 UNIT_TEXT = {"score": "баллы", "mark": "оценка"}
+TRACK_TEXT = {"express": "Экспресс-диагностика", "full": "Подробная диагностика"}
+LEVEL_TEXT = {
+    "gaps": "Есть западающие темы",
+    "structure": "Нет структуры в знаниях",
+    "zero": "Хочет изучить всё с нуля",
+}
+ONLINE_TEXT = {
+    "liked": "Был опыт, понравилось",
+    "disliked": "Был опыт, не понравилось",
+    "quit": "Пробовал(а), но забросил(а)",
+    "never": "Опыта не было",
+}
+PRIORITY_TEXT = {
+    "explain": "Понятное объяснение тем",
+    "practice": "Много практики и разборов",
+    "homework": "Проверка домашки с обратной связью",
+    "control": "Контроль и дисциплина",
+    "motivation": "Мотивация и поддержка",
+    "tactics": "Тактика и лайфхаки на экзамене",
+    "schedule": "Удобное расписание",
+    "price": "Доступная цена",
+}
 
 # Ошибки сессии, при которых имеет смысл упасть на запасной канал (триггер):
 # сценарий уже завершился или не ждёт наш запрос.
@@ -180,8 +203,11 @@ def build_lead(envelope: dict, tg_fields: dict) -> dict:
     user = tg_fields.get("user") or {}
     subjects = answers.get("subjects") or []
     unit = UNIT_TEXT.get(answers.get("goal_unit"), "")
+    priorities = answers.get("priorities") or []
 
     return {
+        "track": answers.get("track"),
+        "track_text": TRACK_TEXT.get(answers.get("track"), ""),
         "telegram_id": user.get("id"),
         "telegram_username": user.get("username"),
         "telegram_name": " ".join(
@@ -195,8 +221,14 @@ def build_lead(envelope: dict, tg_fields: dict) -> dict:
         "goal_unit": answers.get("goal_unit"),
         "goal_unit_text": unit,
         "goal_avg": answers.get("goal_avg"),
+        "level": answers.get("level"),
+        "level_text": LEVEL_TEXT.get(answers.get("level"), ""),
+        "priorities": priorities,
+        "priorities_text": ", ".join(PRIORITY_TEXT.get(p, p) for p in priorities),
         "preparation": answers.get("preparation"),
         "preparation_text": PREP_TEXT.get(answers.get("preparation"), ""),
+        "online_experience": answers.get("online_experience"),
+        "online_experience_text": ONLINE_TEXT.get(answers.get("online_experience"), ""),
         "recommendation": answers.get("recommendation"),
         "subject_ids": [s.get("id") for s in subjects],
         "subjects": ", ".join(str(s.get("name")) for s in subjects),

@@ -31,7 +31,7 @@
     { id: 'parent',  emoji: '👨‍👩‍👦', title: 'Я родитель', desc: 'Подбираю курс для ребёнка' }
   ];
 
-  var GRADES = [5, 6, 7, 8, 9, 10, 11];
+  var GRADES = [11, 10, 9, 8, 7, 6, 5];
 
   var EXAM_LABEL = { oge: 'ОГЭ', ege: 'ЕГЭ', school: 'Школа' };
 
@@ -76,23 +76,89 @@
     ]
   };
 
+  // Доступен в любом наборе предметов: ученик ещё не определился с экзаменами
+  var SUBJECT_UNKNOWN = { id: 'unknown', name: 'Пока не знаю', emoji: '🤔' };
+  Object.keys(SUBJECTS).forEach(function (key) {
+    SUBJECTS[key] = SUBJECTS[key].concat([SUBJECT_UNKNOWN]);
+  });
+
+  var TRACKS = [
+    {
+      id: 'full',
+      emoji: '🧭',
+      title: 'Подробная диагностика',
+      desc: '8 вопросов, около 2 минут — подберём формат занятий точнее',
+      badge: 'Советуем'
+    },
+    {
+      id: 'express',
+      emoji: '⚡️',
+      title: 'Экспресс-диагностика',
+      desc: '3 вопроса, меньше минуты — если совсем нет времени'
+    }
+  ];
+
+  var LEVELS = [
+    { id: 'gaps', emoji: '🧩', title: 'Есть западающие темы', p: {
+      student: 'Основное понимаю, но часть тем проседает',
+      parent: 'Основное ребёнок понимает, но часть тем проседает'
+    } },
+    { id: 'structure', emoji: '🗂', title: 'Нет структуры в знаниях', p: {
+      student: 'Знания есть, но разрозненные — сложно собрать в систему',
+      parent: 'Знания есть, но разрозненные — нет системы'
+    } },
+    { id: 'zero', emoji: '🌱', title: 'Хочу изучить всё с нуля', p: {
+      student: 'Начинаю подготовку с базы',
+      parent: 'Ребёнок начинает подготовку с базы'
+    } }
+  ];
+
+  var PRIORITIES = [
+    { id: 'explain',  emoji: '🧠', name: 'Понятное объяснение тем' },
+    { id: 'practice', emoji: '✍️', name: 'Много практики и разборов' },
+    { id: 'homework', emoji: '📝', name: 'Проверка домашки с обратной связью' },
+    { id: 'control',  emoji: '⏰', name: 'Контроль и дисциплина' },
+    { id: 'motivation', emoji: '🔥', name: 'Мотивация и поддержка' },
+    { id: 'tactics',  emoji: '🎯', name: 'Тактика и лайфхаки на экзамене' },
+    { id: 'schedule', emoji: '🗓', name: 'Удобное расписание' },
+    { id: 'price',    emoji: '💰', name: 'Доступная цена' }
+  ];
+
+  var ONLINE = [
+    { id: 'liked',    emoji: '👍', title: 'Да, и всё понравилось' },
+    { id: 'disliked', emoji: '🤷', title: 'Да, но не зашло' },
+    { id: 'quit',     emoji: '🌀', title: 'Пробовал(а), но забросил(а)' },
+    { id: 'never',    emoji: '✨', title: 'Нет, будет первый раз' }
+  ];
+
   var PREP = [
     { id: 'none',     emoji: '🌱', title: 'Пока никак', p: { student: 'Ещё не начинал(а) готовиться', parent: 'Ребёнок ещё не начинал готовиться' } },
     { id: 'self',     emoji: '📚', title: 'Готовлюсь сам(а)', p: { student: 'Разбираю темы и решаю варианты сам(а)', parent: 'Ребёнок занимается самостоятельно' } },
     { id: 'tutor',    emoji: '🧑‍🏫', title: 'С репетитором', p: { student: 'Занимаюсь индивидуально', parent: 'Занимается с репетитором' } },
-    { id: 'umschool', emoji: '💜', title: 'Уже в Умскул', p: { student: 'Учусь на курсе Умскул', parent: 'Ребёнок учится на курсе Умскул' } }
+    { id: 'school',   emoji: '🏫', title: 'Буду готовиться в школе', p: { student: 'Рассчитываю на школьные уроки и учителя', parent: 'Рассчитываем на школьные уроки и учителя' } },
+    { id: 'umschool', emoji: '🧡', title: 'Уже в Умскул', p: { student: 'Учусь на курсе Умскул', parent: 'Ребёнок учится на курсе Умскул' } }
   ];
 
-  var STEP_IDS = ['role', 'grade', 'subjects', 'goal', 'prep'];
-  var TOTAL = STEP_IDS.length;
+  // Экспресс — только базовая квалификация; подробная — весь набор вопросов
+  var TRACK_STEPS = {
+    express: ['role', 'grade', 'subjects'],
+    full: ['role', 'grade', 'subjects', 'level', 'goal', 'priorities', 'prep', 'online']
+  };
+
+  function steps() { return TRACK_STEPS[state.track] || TRACK_STEPS.full; }
+  function total() { return steps().length; }
 
   /* --------------------------------------------------------- состояние -- */
 
   var STORAGE_KEY = 'umskul_quiz_v1';
 
   var state = {
-    step: -1, // -1 = интро, 0..TOTAL-1 = вопросы, TOTAL = результат
+    step: -1, // -1 = интро, 0..total()-1 = вопросы, total() = результат
+    track: null, // express | full
     role: null,
+    level: null,
+    priorities: [],
+    online: null,
     grade: null,
     subjects: [],
     goals: {},
@@ -105,18 +171,24 @@
   try {
     var saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
     if (saved && typeof saved === 'object') {
+      state.track = saved.track || null;
       state.role = saved.role || null;
       state.grade = saved.grade || null;
       state.subjects = Array.isArray(saved.subjects) ? saved.subjects : [];
       state.goals = saved.goals && typeof saved.goals === 'object' ? saved.goals : {};
+      state.level = saved.level || null;
+      state.priorities = Array.isArray(saved.priorities) ? saved.priorities : [];
       state.prep = saved.prep || null;
+      state.online = saved.online || null;
     }
   } catch (e) { /* приватный режим — просто работаем без сохранения */ }
 
   function persist() {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        role: state.role, grade: state.grade, subjects: state.subjects, goals: state.goals, prep: state.prep
+        track: state.track, role: state.role, grade: state.grade, subjects: state.subjects,
+        goals: state.goals, level: state.level, priorities: state.priorities,
+        prep: state.prep, online: state.online
       }));
     } catch (e) { /* no-op */ }
   }
@@ -196,18 +268,18 @@
     wrap.innerHTML = [
       '<svg viewBox="0 0 128 128" width="128" height="128" aria-hidden="true">',
       '<defs><linearGradient id="mg" x1="0" y1="0" x2="1" y2="1">',
-      '<stop offset="0%" stop-color="#8B5CFF"/><stop offset="100%" stop-color="#6A34E8"/>',
+      '<stop offset="0%" stop-color="#FF8A3D"/><stop offset="100%" stop-color="#F26100"/>',
       '</linearGradient></defs>',
       '<g class="mascot__body">',
-      '<path d="M64 16 L104 34 L64 52 L24 34 Z" fill="#C8F24E"/>',
-      '<path d="M96 39 v18" stroke="#C8F24E" stroke-width="4" stroke-linecap="round"/>',
-      '<circle cx="96" cy="61" r="5" fill="#C8F24E"/>',
+      '<path class="mascot__cap" d="M64 16 L104 34 L64 52 L24 34 Z"/>',
+      '<path class="mascot__cap-line" d="M96 39 v18" stroke-width="4" stroke-linecap="round"/>',
+      '<circle class="mascot__cap" cx="96" cy="61" r="5"/>',
       '<rect x="26" y="50" width="76" height="62" rx="26" fill="url(#mg)"/>',
       '<circle class="mascot__eye" cx="51" cy="78" r="6.5" fill="#fff"/>',
       '<circle class="mascot__eye" cx="77" cy="78" r="6.5" fill="#fff"/>',
       '<path d="M54 93 q10 9 20 0" stroke="#fff" stroke-width="4.5" fill="none" stroke-linecap="round"/>',
       '</g>',
-      '<g class="mascot__spark" fill="#C8F24E">',
+      '<g class="mascot__spark">',
       '<path d="M16 66 l3 7 7 3 -7 3 -3 7 -3-7 -7-3 7-3 z"/>',
       '<path d="M112 84 l2.2 5 5 2.2 -5 2.2 -2.2 5 -2.2-5 -5-2.2 5-2.2 z"/>',
       '</g>',
@@ -219,26 +291,57 @@
   /* ----------------------------------------------------------- шаги ---- */
 
   function stepIntro() {
-    var root = h('div', { class: 'step hero' }, [
-      mascot(),
-      h('h1', { class: 'hero__title', text: 'Подберём программу под твою цель' }),
-      h('p', { class: 'hero__text', text: '5 коротких вопросов — и мы поймём, какой курс Умскул подойдёт. Займёт меньше минуты.' }),
-      h('div', { class: 'hero__facts stagger' }, [
-        h('div', { class: 'fact', style: '--i:0' }, [
-          h('span', { class: 'fact__ico', text: '⏱' }),
-          h('span', { class: 'fact__text', html: '<b>40 секунд</b> — и никаких длинных анкет' })
+    var options = h('div', { class: 'options stagger' }, TRACKS.map(function (t, i) {
+      var node = h('button', {
+        class: 'option option--track' + (state.track === t.id ? ' option--selected' : ''),
+        type: 'button',
+        style: '--i:' + i,
+        onclick: function () {
+          if (state.track && state.track !== t.id) resetAnswers();
+          state.track = t.id;
+          haptic('select');
+          persist();
+          refreshSelection(options, '.option', t.id, 'option--selected');
+          syncCta();
+          setTimeout(next, 220);
+        }
+      }, [
+        h('span', { class: 'option__emoji', text: t.emoji }),
+        h('span', { class: 'option__body' }, [
+          h('span', { class: 'option__title' }, [
+            document.createTextNode(t.title),
+            t.badge ? h('span', { class: 'option__badge', text: t.badge }) : null
+          ]),
+          h('span', { class: 'option__desc', text: t.desc })
         ]),
-        h('div', { class: 'fact', style: '--i:1' }, [
-          h('span', { class: 'fact__ico', text: '🎯' }),
-          h('span', { class: 'fact__text', html: 'Учтём <b>класс, предметы и цель по баллам</b>' })
-        ]),
-        h('div', { class: 'fact', style: '--i:2' }, [
-          h('span', { class: 'fact__ico', text: '💜' }),
-          h('span', { class: 'fact__text', html: 'В конце — <b>персональная подборка</b> от Умскул' })
-        ])
-      ])
-    ]);
-    return { node: root, cta: 'Начать', valid: true };
+        h('span', { class: 'option__check' }, [checkIcon()])
+      ]);
+      node.dataset.value = t.id;
+      return node;
+    }));
+
+    return {
+      node: h('div', { class: 'step' }, [
+        mascot(),
+        h('h1', { class: 'step__title', text: 'Подберём формат занятий' }),
+        h('p', { class: 'step__subtitle', text: 'Советуем пройти подробную диагностику, чтобы мы подобрали наиболее подходящий формат занятий. Но если времени совсем мало — воспользуйся экспресс-диагностикой.' }),
+        options
+      ]),
+      cta: 'Начать',
+      valid: function () { return !!state.track; }
+    };
+  }
+
+  /** Смена трека обнуляет ответы: наборы вопросов у веток разные. */
+  function resetAnswers() {
+    state.role = null;
+    state.grade = null;
+    state.subjects = [];
+    state.goals = {};
+    state.level = null;
+    state.priorities = [];
+    state.prep = null;
+    state.online = null;
   }
 
   function stepRole() {
@@ -325,6 +428,10 @@
     var counter = h('p', { class: 'counter' });
 
     function updateCounter() {
+      if (state.subjects.length === 1 && state.subjects[0] === SUBJECT_UNKNOWN.id) {
+        counter.textContent = 'Ничего страшного — поможем определиться';
+        return;
+      }
       var n = state.subjects.length;
       counter.textContent = n === 0
         ? 'Выберите минимум один предмет'
@@ -341,13 +448,18 @@
           if (idx > -1) {
             state.subjects.splice(idx, 1);
             delete state.goals[s.id];
-            node.classList.remove('chip--selected');
+          } else if (s.id === SUBJECT_UNKNOWN.id) {
+            // «Пока не знаю» отменяет конкретные предметы
+            state.subjects = [s.id];
+            state.goals = {};
           } else {
+            state.subjects = state.subjects.filter(function (id) { return id !== SUBJECT_UNKNOWN.id; });
             state.subjects.push(s.id);
-            node.classList.add('chip--selected');
+            delete state.goals[SUBJECT_UNKNOWN.id];
           }
           haptic('select');
           persist();
+          syncChips();
           updateCounter();
           syncCta();
         }
@@ -355,8 +467,15 @@
         h('span', { text: s.emoji }),
         h('span', { text: s.name })
       ]);
+      node.dataset.value = s.id;
       return node;
     }));
+
+    function syncChips() {
+      Array.prototype.forEach.call(chips.querySelectorAll('.chip'), function (node) {
+        node.classList.toggle('chip--selected', state.subjects.indexOf(node.dataset.value) > -1);
+      });
+    }
 
     updateCounter();
 
@@ -385,6 +504,9 @@
       var subj = subjectById(id);
       if (!subj) return null;
       if (state.goals[id] === undefined) state.goals[id] = defaultGoal();
+      var cardTitle = subj.id === SUBJECT_UNKNOWN.id
+        ? (unit === 'score' ? 'Общая цель по баллам' : 'Желаемая оценка')
+        : subj.name;
 
       var value = h('span', { class: 'goal-card__value', text: String(state.goals[id]) });
       var body;
@@ -447,7 +569,7 @@
       return h('div', { class: 'goal-card', style: '--i:' + i }, [
         h('div', { class: 'goal-card__head' }, [
           h('span', { class: 'option__emoji', text: subj.emoji }),
-          h('span', { class: 'goal-card__name', text: subj.name }),
+          h('span', { class: 'goal-card__name', text: cardTitle }),
           value,
           h('span', { class: 'goal-card__unit', text: unit === 'score' ? 'баллов' : 'оценка' })
         ]),
@@ -505,23 +627,159 @@
     };
   }
 
+  function stepLevel() {
+    var options = h('div', { class: 'options stagger' }, LEVELS.map(function (l, i) {
+      var node = h('button', {
+        class: 'option' + (state.level === l.id ? ' option--selected' : ''),
+        type: 'button',
+        style: '--i:' + i,
+        onclick: function () {
+          state.level = l.id;
+          haptic('select');
+          persist();
+          refreshSelection(options, '.option', l.id, 'option--selected');
+          syncCta();
+          setTimeout(next, 220);
+        }
+      }, [
+        h('span', { class: 'option__emoji', text: l.emoji }),
+        h('span', { class: 'option__body' }, [
+          h('span', { class: 'option__title', text: l.title }),
+          h('span', { class: 'option__desc', text: who(l.p.student, l.p.parent) })
+        ]),
+        h('span', { class: 'option__check' }, [checkIcon()])
+      ]);
+      node.dataset.value = l.id;
+      return node;
+    }));
+
+    return {
+      node: h('div', { class: 'step' }, [
+        h('span', { class: 'step__eyebrow', text: '📊 Уровень' }),
+        h('h1', { class: 'step__title', text: who('Какой у тебя сейчас уровень знаний?', 'Какой сейчас уровень знаний у ребёнка?') }),
+        h('p', { class: 'step__subtitle', text: 'От этого зависит, с чего начнём программу.' }),
+        options
+      ]),
+      cta: 'Далее',
+      valid: function () { return !!state.level; }
+    };
+  }
+
+  function stepPriorities() {
+    var counter = h('p', { class: 'counter' });
+
+    function updateCounter() {
+      var n = state.priorities.length;
+      counter.textContent = n === 0
+        ? 'Отметьте хотя бы один пункт'
+        : 'Выбрано: ' + n + ' ' + plural(n, ['пункт', 'пункта', 'пунктов']);
+    }
+
+    var chips = h('div', { class: 'chips stagger' }, PRIORITIES.map(function (p, i) {
+      var node = h('button', {
+        class: 'chip' + (state.priorities.indexOf(p.id) > -1 ? ' chip--selected' : ''),
+        type: 'button',
+        style: '--i:' + i,
+        onclick: function () {
+          var idx = state.priorities.indexOf(p.id);
+          if (idx > -1) { state.priorities.splice(idx, 1); node.classList.remove('chip--selected'); }
+          else { state.priorities.push(p.id); node.classList.add('chip--selected'); }
+          haptic('select');
+          persist();
+          updateCounter();
+          syncCta();
+        }
+      }, [
+        h('span', { text: p.emoji }),
+        h('span', { text: p.name })
+      ]);
+      node.dataset.value = p.id;
+      return node;
+    }));
+
+    updateCounter();
+
+    return {
+      node: h('div', { class: 'step' }, [
+        h('span', { class: 'step__eyebrow', text: '⭐️ Приоритеты' }),
+        h('h1', { class: 'step__title', text: who('Что для тебя важнее всего в подготовке?', 'Что важнее всего в подготовке для ребёнка?') }),
+        h('p', { class: 'step__subtitle', text: 'Отметьте всё, чего сейчас не хватает — можно выбрать несколько.' }),
+        chips,
+        counter
+      ]),
+      cta: 'Далее',
+      valid: function () { return state.priorities.length > 0; }
+    };
+  }
+
+  function stepOnline() {
+    var options = h('div', { class: 'options stagger' }, ONLINE.map(function (o, i) {
+      var node = h('button', {
+        class: 'option' + (state.online === o.id ? ' option--selected' : ''),
+        type: 'button',
+        style: '--i:' + i,
+        onclick: function () {
+          state.online = o.id;
+          haptic('select');
+          persist();
+          refreshSelection(options, '.option', o.id, 'option--selected');
+          syncCta();
+          setTimeout(next, 220);
+        }
+      }, [
+        h('span', { class: 'option__emoji', text: o.emoji }),
+        h('span', { class: 'option__body' }, [
+          h('span', { class: 'option__title', text: o.title })
+        ]),
+        h('span', { class: 'option__check' }, [checkIcon()])
+      ]);
+      node.dataset.value = o.id;
+      return node;
+    }));
+
+    return {
+      node: h('div', { class: 'step' }, [
+        h('span', { class: 'step__eyebrow', text: '💻 Онлайн' }),
+        h('h1', { class: 'step__title', text: who('Был ли опыт онлайн-занятий?', 'Был ли у ребёнка опыт онлайн-занятий?') }),
+        h('p', { class: 'step__subtitle', text: 'Подскажем, как всё устроено, если формат новый.' }),
+        options
+      ]),
+      cta: 'Далее',
+      valid: function () { return !!state.online; }
+    };
+  }
+
   function stepResult() {
     var exam = currentExam();
     var unit = goalUnit();
     var names = state.subjects.map(function (id) {
       var s = subjectById(id);
-      return s ? s.name + ' — ' + state.goals[id] : null;
+      if (!s) return null;
+      if (s.id === SUBJECT_UNKNOWN.id) return 'Пока не определились';
+      return s.name + (state.goals[id] !== undefined ? ' — ' + state.goals[id] : '');
     }).filter(Boolean);
 
     var roleTitle = state.role === 'parent' ? 'Родитель' : 'Ученик';
     var prepItem = PREP.filter(function (p) { return p.id === state.prep; })[0];
 
+    var levelItem = LEVELS.filter(function (l) { return l.id === state.level; })[0];
+    var onlineItem = ONLINE.filter(function (o) { return o.id === state.online; })[0];
+    var priorityNames = PRIORITIES.filter(function (p) {
+      return state.priorities.indexOf(p.id) > -1;
+    }).map(function (p) { return p.name; });
+
+    var onlyUnknown = state.subjects.length === 1 && state.subjects[0] === SUBJECT_UNKNOWN.id;
+    var hasGoals = state.subjects.some(function (id) { return state.goals[id] !== undefined; });
+
     var rows = [
       ['Кто вы', roleTitle],
       ['Класс', state.grade + ' класс · ' + (exam === 'school' ? 'школьная программа' : EXAM_LABEL[exam])],
-      [unit === 'score' ? 'Предметы и баллы' : 'Предметы и оценки', names.join('\n')],
-      ['Подготовка', prepItem ? prepItem.title : '—']
+      [onlyUnknown || !hasGoals ? 'Предметы' : (unit === 'score' ? 'Предметы и баллы' : 'Предметы и оценки'), names.join('\n')]
     ];
+    if (levelItem) rows.push(['Уровень', levelItem.title]);
+    if (priorityNames.length) rows.push(['Важно', priorityNames.join('\n')]);
+    if (prepItem) rows.push(['Подготовка', prepItem.title]);
+    if (onlineItem) rows.push(['Опыт онлайна', onlineItem.title]);
 
     var summary = h('div', { class: 'summary' }, rows.map(function (r, i) {
       return h('div', { class: 'summary__row', style: '--i:' + i }, [
@@ -581,6 +839,7 @@
   }
 
   function planItems(exam, unit) {
+    // подсказки по новым ответам добавляются ниже, если ветка подробная
     var items = [
       'Онлайн-занятия с преподавателями и личным куратором',
       'Домашние задания с проверкой и разбором ошибок'
@@ -588,6 +847,12 @@
     if (exam === 'school') items.push('Упор на пробелы школьной программы');
     else items.push('Пробники в формате ' + EXAM_LABEL[exam] + ' каждый месяц');
     if (unit === 'score' && averageGoal() >= 90) items.push('Дополнительные вебинары по задачам второй части');
+    if (state.level === 'zero') items.push('Стартуем с базовых тем — без пробелов в фундаменте');
+    if (state.level === 'structure') items.push('Соберём знания в систему: план тем от простого к сложному');
+    if (state.priorities.indexOf('control') > -1) items.push('Куратор следит за дедлайнами и не даёт забросить');
+    if (state.priorities.indexOf('price') > -1) items.push('Подберём тариф под бюджет и расскажем про рассрочку');
+    if (state.online === 'never') items.push('Покажем платформу и проведём вводное занятие');
+    if (state.prep === 'school') items.push('Дополним школьную программу форматом экзамена');
     if (state.prep === 'umschool') items.push('Учтём ваш текущий курс — предложим апгрейд, а не дубль');
     if (state.subjects.length >= 3) items.push('Комплект из ' + state.subjects.length + ' предметов — со скидкой за пакет');
     return items;
@@ -600,7 +865,8 @@
   }
 
   var BUILDERS = {
-    role: stepRole, grade: stepGrade, subjects: stepSubjects, goal: stepGoal, prep: stepPrep
+    role: stepRole, grade: stepGrade, subjects: stepSubjects, level: stepLevel,
+    goal: stepGoal, priorities: stepPriorities, prep: stepPrep, online: stepOnline
   };
 
   /* -------------------------------------------------------- утилиты UI -- */
@@ -626,9 +892,9 @@
 
   function build() {
     if (state.step === -1) return stepIntro();
-    if (state.step > TOTAL) return stepSent();
-    if (state.step === TOTAL) return stepResult();
-    return BUILDERS[STEP_IDS[state.step]]();
+    if (state.step > total()) return stepSent();
+    if (state.step === total()) return stepResult();
+    return BUILDERS[steps()[state.step]]();
   }
 
   function render(direction) {
@@ -648,42 +914,42 @@
     syncChrome();
     syncCta();
 
-    if (state.step === TOTAL && !state.sent) {
+    if (state.step === total() && !state.sent) {
       haptic('success');
       confetti();
     }
   }
 
   function syncChrome() {
-    var isQuestion = state.step >= 0 && state.step < TOTAL;
+    var isQuestion = state.step >= 0 && state.step < total();
     el.progress.hidden = !isQuestion;
     el.brand.hidden = isQuestion;
-    el.back.hidden = state.step <= -1 || state.step > TOTAL;
+    el.back.hidden = state.step <= -1 || state.step > total();
 
     if (isQuestion) {
       var done = state.step;
-      var pct = Math.round(done / TOTAL * 100);
+      var pct = Math.round(done / total() * 100);
       el.fill.style.width = Math.max(pct, 4) + '%';
       el.pct.textContent = pct + '%';
-      el.label.textContent = 'Вопрос ' + (state.step + 1) + ' из ' + TOTAL;
+      el.label.textContent = 'Вопрос ' + (state.step + 1) + ' из ' + total();
 
-      if (el.dots.childElementCount !== TOTAL) {
+      if (el.dots.childElementCount !== total()) {
         el.dots.innerHTML = '';
-        for (var i = 0; i < TOTAL; i++) el.dots.appendChild(h('span', { class: 'progress__dot' }));
+        for (var i = 0; i < total(); i++) el.dots.appendChild(h('span', { class: 'progress__dot' }));
       }
       Array.prototype.forEach.call(el.dots.children, function (d, i) {
         d.className = 'progress__dot' + (i < state.step ? ' progress__dot--done' : i === state.step ? ' progress__dot--current' : '');
       });
     }
 
-    if (state.step >= TOTAL) {
+    if (state.step >= total()) {
       el.fill.style.width = '100%';
       el.pct.textContent = '100%';
     }
 
     // Кнопка «назад» в клиенте Telegram
     if (inTelegram && tg.BackButton) {
-      if (state.step > -1 && state.step <= TOTAL) tg.BackButton.show(); else tg.BackButton.hide();
+      if (state.step > -1 && state.step <= total()) tg.BackButton.show(); else tg.BackButton.hide();
     }
   }
 
@@ -695,8 +961,8 @@
       document.body.classList.add('native-cta');
       el.footer.hidden = true;
       tg.MainButton.setText(text);
-      if (valid) { tg.MainButton.enable(); tg.MainButton.setParams({ color: '#7B48F5', text_color: '#FFFFFF' }); }
-      else { tg.MainButton.disable(); tg.MainButton.setParams({ color: '#C9BFE8', text_color: '#FFFFFF' }); }
+      if (valid) { tg.MainButton.enable(); tg.MainButton.setParams({ color: '#FF6B00', text_color: '#FFFFFF' }); }
+      else { tg.MainButton.disable(); tg.MainButton.setParams({ color: '#F0C3A2', text_color: '#FFFFFF' }); }
       tg.MainButton.show();
     } else {
       el.footer.hidden = false;
@@ -707,10 +973,17 @@
     el.ctaHint.textContent = hintFor(valid);
   }
 
+  function stepId() {
+    var ids = steps();
+    return state.step >= 0 && state.step < ids.length ? ids[state.step] : null;
+  }
+
   function hintFor(valid) {
     if (state.error) return state.error + ' — проверьте связь и попробуйте ещё раз';
-    if (state.step === 2 && !valid) return 'Отметьте хотя бы один предмет';
-    if (state.step === 3) return 'Можно вернуться и изменить в любой момент';
+    var id = stepId();
+    if (id === 'subjects' && !valid) return 'Отметьте хотя бы один предмет';
+    if (id === 'priorities' && !valid) return 'Отметьте хотя бы один пункт';
+    if (id === 'goal') return 'Можно вернуться и изменить в любой момент';
     return '';
   }
 
@@ -723,8 +996,8 @@
     var valid = typeof current.valid === 'function' ? current.valid() : current.valid;
     if (!valid) { haptic('rigid'); return; }
 
-    if (state.step > TOTAL) { if (inTelegram) tg.close(); return; }
-    if (state.step === TOTAL) { submit(); return; }
+    if (state.step > total()) { if (inTelegram) tg.close(); return; }
+    if (state.step === total()) { submit(); return; }
 
     // Пропускаем шаг цели, если предметов почему-то нет
     state.step += 1;
@@ -733,7 +1006,7 @@
   }
 
   function back() {
-    if (state.busy || state.step > TOTAL) return;
+    if (state.busy || state.step > total()) return;
     if (state.step <= -1) { if (inTelegram) tg.close(); return; }
     state.step -= 1;
     state.sent = false;
@@ -747,8 +1020,9 @@
   function payload() {
     var exam = currentExam();
     return {
-      v: 1,
+      v: 2,
       source: 'umskul_qualification',
+      track: state.track || 'full',
       role: state.role,
       grade: state.grade,
       exam: exam,
@@ -758,7 +1032,10 @@
         return { id: id, name: s ? s.name : id, goal: state.goals[id] };
       }),
       goal_avg: averageGoal(),
+      level: state.level,
+      priorities: state.priorities.slice(),
       preparation: state.prep,
+      online_experience: state.online,
       recommendation: recommendation(exam),
       ts: new Date().toISOString(),
       context: Object.assign({ start_param: launch.startParam }, cfg.extra || {})
@@ -842,7 +1119,7 @@
       state.sent = true;
       finishTelegramSession();
       haptic('success');
-      state.step = TOTAL + 1;
+      state.step = total() + 1;
       render(1);
     }, function (err) {
       clearTimeout(timer);
@@ -874,7 +1151,7 @@
 
   function confetti() {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    var colors = ['#7B48F5', '#C8F24E', '#A66BFF', '#FFC93C', '#FF7BD5'];
+    var colors = ['#FF6B00', '#FF9A4D', '#14110F', '#FFC79E', '#FF7A1A'];
     var frag = document.createDocumentFragment();
     for (var i = 0; i < 46; i++) {
       var piece = h('span', { class: 'confetti__piece' });
@@ -896,7 +1173,7 @@
   function applyTheme() {
     if (!inTelegram) return;
     document.documentElement.setAttribute('data-scheme', tg.colorScheme === 'dark' ? 'dark' : 'light');
-    var bg = tg.colorScheme === 'dark' ? '#17141F' : '#FFFFFF';
+    var bg = tg.colorScheme === 'dark' ? '#121110' : '#FFFFFF';
     try { tg.setHeaderColor(bg); tg.setBackgroundColor(bg); } catch (e) { /* старые клиенты */ }
   }
 
