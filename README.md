@@ -334,7 +334,7 @@ yc container registry list        # отсюда взять ID вида crp1a2b3
 yc iam service-account create --name umskul-ci
 yc resource-manager folder add-access-binding <folder-id> \
   --role container-registry.images.pusher \
-  --subject serviceAccount:<id сервисного аккаунта>
+  --service-account-id <id сервисного аккаунта>
 yc iam key create --service-account-name umskul-ci --output key.json
 ```
 
