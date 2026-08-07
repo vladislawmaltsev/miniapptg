@@ -131,24 +131,6 @@ button, input { font: inherit; color: inherit; }
 .icon-btn:active { transform: scale(.9); background: var(--brand-soft); }
 .icon-btn[hidden] { display: none; }
 
-.brand {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.brand[hidden] { display: none; }
-.brand__mark { width: 26px; height: 26px; border-radius: 8px; display: block; }
-.brand__logo {
-  font-weight: 800;
-  letter-spacing: -.02em;
-  font-size: 17px;
-  background: linear-gradient(96deg, var(--brand) 0%, #FF9A4D 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
 /* -------------------------------------------------------------- progress */
 
 .progress { flex: 1; min-width: 0; }
@@ -550,6 +532,16 @@ body.native-cta .screen { padding-bottom: 28px; }
 .fact__ico { font-size: 20px; }
 .fact__text { font-size: 14px; color: var(--ink-2); }
 .fact__text b { color: var(--ink); }
+
+/* Знак Умскул на первом экране */
+.hero__logo {
+  width: 120px;
+  height: 120px;
+  margin: 0 auto 20px;
+  display: block;
+  filter: drop-shadow(0 10px 22px rgba(255, 107, 0, .28));
+  animation: pop .5s var(--ease) both;
+}
 
 /* Маскот */
 .mascot { width: 128px; height: 128px; margin: 0 auto; display: block; }

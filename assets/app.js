@@ -201,7 +201,7 @@
     screen: $('screen'), footer: $('footer'), cta: $('cta'), ctaHint: $('ctaHint'),
     back: $('backBtn'), progress: $('progress'), fill: $('progressFill'),
     label: $('progressLabel'), pct: $('progressPct'), dots: $('progressDots'),
-    confetti: $('confetti'), brand: $('brand')
+    confetti: $('confetti')
   };
 
   function h(tag, attrs, children) {
@@ -322,7 +322,7 @@
 
     return {
       node: h('div', { class: 'step' }, [
-        mascot(),
+        h('img', { class: 'hero__logo', src: 'assets/logo.svg', alt: 'Умскул', width: '120', height: '120' }),
         h('h1', { class: 'step__title', text: 'Подберём формат занятий' }),
         h('p', { class: 'step__subtitle', text: 'Советуем пройти подробную диагностику, чтобы мы подобрали наиболее подходящий формат занятий. Но если времени совсем мало — воспользуйся экспресс-диагностикой.' }),
         options
@@ -923,7 +923,6 @@
   function syncChrome() {
     var isQuestion = state.step >= 0 && state.step < total();
     el.progress.hidden = !isQuestion;
-    el.brand.hidden = isQuestion;
     el.back.hidden = state.step <= -1 || state.step > total();
 
     if (isQuestion) {
