@@ -1,8 +1,11 @@
 # Приёмник ответов мини-аппа. Зависимостей нет — только стандартная библиотека,
 # поэтому образ получается маленьким и собирается за секунды.
 #
-#   docker build -f deploy/Dockerfile -t umskul-webhook .
-#   docker run -p 8080:8080 --env-file deploy/env.example umskul-webhook
+# Лежит в корне намеренно: хостинги, которые собирают проект из GitHub,
+# ищут Dockerfile именно здесь и подхватывают его без настройки.
+#
+#   docker build -t umskul-webhook .
+#   docker run -p 8080:8080 --env-file .env umskul-webhook
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \

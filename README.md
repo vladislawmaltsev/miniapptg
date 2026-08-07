@@ -66,7 +66,8 @@ assets/logo.svg       знак Умскул (шапка + фавикон)
 server/webhook.py     приёмник: проверка подписи initData и пересылка лида
 server/test_webhook.py тесты приёмника
 bot/bot.py            вариант с reply-клавиатурой и sendData (aiogram 3)
-deploy/               Dockerfile, systemd-юнит, Caddyfile и шаблон переменных
+Dockerfile            образ приёмника для хостингов, которые собирают из GitHub
+deploy/               install.sh для VPS, systemd-юнит, Caddyfile, env.example
 ```
 
 ## Локальный запуск
@@ -80,9 +81,6 @@ python3 -m http.server 4173
 (`cloudflared tunnel --url http://localhost:4173`) или GitHub Pages.
 
 ## Публикация на GitHub Pages
-
-Публикацией страницы занимается `.github/workflows/pages.yml`, сборкой образа
-приёмника — `.github/workflows/deploy-webhook.yml`.
 
 В репозитории есть workflow `.github/workflows/pages.yml`: включите Pages в
 `Settings → Pages → Build and deployment → GitHub Actions`, после пуша в основную ветку
@@ -283,105 +281,91 @@ python server/test_webhook.py   # 22 теста: подпись, доставк�
 Секреты (`BOT_TOKEN` и URL триггера) задаются переменными окружения и в репозиторий
 не коммитятся. Шаблон — `deploy/env.example`.
 
-### Вариант A: контейнер на PaaS (проще всего)
+### Какой вариант выбрать
 
-В `deploy/Dockerfile` лежит готовый образ: зависимостей нет, собирается за секунды,
-слушает порт из переменной `PORT`, отвечает на `GET /` для health-check.
+Ни в одном из вариантов ниже **не нужны** ни Docker на вашей машине, ни реестры
+образов, ни консольные утилиты облака. Это была лишняя сложность — сервис слишком
+маленький, чтобы разворачивать вокруг него инфраструктуру.
 
-Подойдёт любой хостинг, который умеет запускать контейнер и сам выдаёт HTTPS-домен —
-Yandex Cloud Serverless Containers, Timeweb Cloud, Amvera, Selectel, Render, Railway,
-Fly.io. Порядок везде один:
+| Вариант | Что делаете руками | Домен и HTTPS | Порядок цен |
+|---|---|---|---|
+| **A. PaaS из GitHub** (рекомендую) | подключаете репозиторий, вписываете переменные | выдаётся сразу | ~200–400 ₽/мес |
+| **Б. VPS одним скриптом** | арендуете сервер, покупаете домен, запускаете `deploy/install.sh` | Caddy получает Let's Encrypt сам | ~200 ₽/мес + домен |
+| **В. Туннель** | ничего | временный адрес | бесплатно, только для проверки |
 
-1. Подключить репозиторий или загрузить образ, указать путь к Dockerfile — `deploy/Dockerfile`.
-2. В панели задать переменные окружения из `deploy/env.example`.
-3. Задеплоить и забрать выданный адрес вида `https://umskul-webhook.example.app`.
+Вариант А проще: обновление кода — это `git push`, сервер обновляется сам.
+Вариант Б предсказуемее и не зависит от тарифной политики платформы, но
+обновления системы на вас.
 
-Локально то же самое проверяется так:
+### Вариант A: PaaS, который сам собирает репозиторий
+
+Подойдёт любая платформа, умеющая собрать проект из GitHub по Dockerfile:
+**Timeweb Cloud Apps**, **Amvera**, **Selectel Container Apps**, Render, Railway,
+Fly.io. Первые три принимают оплату российскими картами.
+
+Шаги везде одинаковые:
+
+1. Создать приложение и подключить этот GitHub-репозиторий (платформа попросит
+   доступ к аккаунту — достаточно доступа к одному репозиторию).
+2. Тип сборки — **Dockerfile**. Он лежит в корне репозитория, поэтому платформа
+   находит его сама; отдельно указывать путь не нужно.
+3. Порт приложения — `8080` (или оставить пустым: приёмник берёт порт
+   из переменной `PORT`, которую платформа задаёт сама).
+4. Вписать переменные окружения из `deploy/env.example` — кроме `PORT`.
+5. Задеплоить и забрать выданный адрес вида `https://umskul-webhook-xxxx.twc1.net`.
+
+Одна важная проверка при выборе тарифа: **сервис не должен «засыпать» при простое**.
+На бесплатных планах первый запрос после сна занимает до полуминуты и не уложится
+в `submitTimeout` (15 секунд) — анкета потеряется. Нужен тариф, где контейнер
+работает постоянно; у российских платформ это базовый платный план.
+
+Проверить образ локально, если под рукой есть Docker (не обязательно):
 
 ```bash
-docker build -f deploy/Dockerfile -t umskul-webhook .
+docker build -t umskul-webhook .
 docker run -p 8080:8080 --env-file .env umskul-webhook
 curl http://localhost:8080/          # {"ok": true, "service": "umskul-webhook"}
 ```
 
-Осторожно с бесплатными тарифами, которые «усыпляют» сервис при простое: первый
-запрос после сна может занять полминуты и не уложиться в таймаут отправки
-(`submitTimeout`, по умолчанию 15 секунд). Для боевого потока берите тариф без сна.
+### Вариант Б: свой VPS одним скриптом
 
-#### Пример: Yandex Cloud Serverless Containers
+Берите самый младший тариф с Ubuntu 22.04/24.04 — приёмнику хватит 1 ядра и 512 МБ.
 
-Платите только за запросы, HTTPS выдаётся сразу.
-
-**Важно про сборку образа.** Serverless Containers запускает образ из Container
-Registry, а Docker есть не везде: в Yandex Cloud Shell его нет, там `docker build`
-завершится ошибкой `docker: command not found`. Поэтому образ собирает GitHub Actions —
-воркфлоу `.github/workflows/deploy-webhook.yml` уже лежит в репозитории.
-
-**1. Создать реестр** (в Cloud Shell или локально через `yc`):
+1. Купить домен и завести A-запись (например `api.umskul-quiz.ru`) на IP сервера.
+   Проверить, что она разошлась: `dig +short api.umskul-quiz.ru`.
+2. Открыть в фаерволе порты 80 и 443.
+3. Зайти на сервер по SSH и выполнить:
 
 ```bash
-yc container registry create --name umskul
-yc container registry list        # отсюда взять ID вида crp1a2b3...
+apt update && apt install -y git
+git clone https://github.com/<user>/<repo>.git /opt/umskul
+bash /opt/umskul/deploy/install.sh api.umskul-quiz.ru
 ```
 
-Если реестр случайно создан несколько раз, лишние удаляются по идентификатору:
-`yc container registry delete --id <id>`.
+Скрипт ставит Python и Caddy, заводит системного пользователя, кладёт юнит
+в systemd и настраивает Caddy на ваш домен. Сертификат Let's Encrypt Caddy
+получает и продлевает сам.
 
-**2. Завести сервисный аккаунт для сборки** и выдать ему роль
-`container-registry.images.pusher`, затем создать авторизованный ключ:
+4. Вписать настройки и запустить:
 
 ```bash
-yc iam service-account create --name umskul-ci
-yc resource-manager folder add-access-binding <folder-id> \
-  --role container-registry.images.pusher \
-  --service-account-id <id сервисного аккаунта>
-yc iam key create --service-account-name umskul-ci --output key.json
+nano /etc/umskul-webhook.env       # BOT_TOKEN, ALLOWED_ORIGIN, BM_TRIGGER_URL
+systemctl start umskul-webhook
+curl -i https://api.umskul-quiz.ru/
 ```
 
-**3. Добавить секреты в GitHub** (`Settings → Secrets and variables → Actions`):
-`YC_REGISTRY_ID` — идентификатор реестра, `YC_SA_KEY` — содержимое `key.json` целиком.
-После этого воркфлоу можно запустить вручную со вкладки Actions, и образ появится
-в реестре под тегами с хешем коммита и `latest`.
+Дальше:
 
-**4. Заполнить форму ревизии контейнера:**
+```bash
+journalctl -u umskul-webhook -f    # логи
+systemctl restart umskul-webhook   # после правки переменных
+cd /opt/umskul && git pull && systemctl restart umskul-webhook   # обновить код
+```
 
-| Поле | Значение |
-|---|---|
-| Режим работы | HTTP-сервер |
-| vCPU | 1, гарантированная доля 20% |
-| RAM | 256 МБ |
-| URL образа | образ `umskul-webhook` из вашего реестра |
-| Команда, аргументы, рабочая директория | оставить пустыми — они заданы в образе |
-| Таймаут | 30 секунд |
-| Сервисный аккаунт | с ролью `container-registry.images.puller` (и `lockbox.payloadViewer`, если используете Lockbox) |
+Скрипт можно запускать повторно — он обновит юнит и конфиг Caddy, но уже
+заполненный `/etc/umskul-webhook.env` не тронет.
 
-**5. Переменные окружения** — из `deploy/env.example`, кроме `PORT`: его Serverless
-Containers передаёт сам. `BOT_TOKEN` и `BM_TRIGGER_URL` лучше положить в Yandex Lockbox
-и подключить через блок «Секреты Yandex Lockbox».
-
-**6. Включить переключатель «Публичный контейнер».** По умолчанию вызов требует
-авторизации IAM, и мини-апп получит 401 — анкета не отправится.
-
-**7. Забрать «Ссылку для вызова»** вида `https://bba***.containers.yandexcloud.net/`
-и прописать её в `assets/config.js`. Путь может быть любым — приёмник обрабатывает все.
-
-Холодный старт у образа со стандартной библиотекой — доли секунды, в таймаут отправки
-укладывается с запасом.
-
-### Вариант B: свой сервер (VPS)
-
-Полный контроль, из минусов — обновления и сертификаты на вас. В `deploy/` лежат
-оба нужных файла:
-
-1. Завести A-запись домена (например `api.umskul-quiz.ru`) на IP сервера, открыть порты 80 и 443.
-2. Положить репозиторий в `/opt/umskul`, создать пользователя `umskul`.
-3. Записать переменные в `/etc/umskul-webhook.env` (права `600`).
-4. Скопировать `deploy/umskul-webhook.service` в `/etc/systemd/system/`, затем
-   `systemctl enable --now umskul-webhook`.
-5. Поставить Caddy и взять `deploy/Caddyfile` — сертификат Let's Encrypt он получит
-   и продлит сам.
-
-### Вариант C: туннель (только для проверки)
+### Вариант В: туннель (только для проверки)
 
 Для разработки хватит туннеля — постоянный адрес и аптайм он не даёт, в бой не годится:
 
