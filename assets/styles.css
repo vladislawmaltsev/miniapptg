@@ -509,6 +509,103 @@ body.native-cta .screen { padding-bottom: 28px; }
   box-shadow: var(--shadow-2);
 }
 
+/* --------------------------------------------------------------- меню */
+
+.menu__logo {
+  width: 72px;
+  height: 72px;
+  margin: 0 auto 16px;
+  display: block;
+  animation: pop .5s var(--ease) both;
+}
+
+.option__arrow {
+  flex: none;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--muted);
+  transition: transform .18s var(--ease);
+}
+.option:active .option__arrow { transform: translateX(3px); }
+.option--muted { border-style: dashed; }
+.option--muted .option__emoji { background: transparent; }
+
+/* Блоки контента раздела */
+
+.block-text {
+  margin: 0 0 14px;
+  color: var(--ink-2);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.block-list { margin: 0 0 14px; padding: 0; list-style: none; display: grid; gap: 9px; }
+.block-list__item {
+  position: relative;
+  padding-left: 26px;
+  color: var(--ink-2);
+  font-size: 15px;
+  line-height: 1.45;
+}
+.block-list__item::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 9px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--brand);
+}
+
+.block-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.stat {
+  padding: 16px 12px;
+  border-radius: var(--radius);
+  background: var(--brand-soft);
+  text-align: center;
+}
+.stat__value {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -.03em;
+  color: var(--brand);
+}
+.stat__label { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.3; }
+
+.block-quote {
+  margin: 0 0 14px;
+  padding: 16px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  border-left: 3px solid var(--brand);
+}
+.block-quote__text { margin: 0; font-size: 15px; line-height: 1.5; color: var(--ink); }
+.block-quote__author { margin-top: 10px; font-size: 13px; color: var(--muted); }
+
+.block-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 15px 16px;
+  margin-bottom: 10px;
+  border: 2px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  text-decoration: none;
+  color: inherit;
+  transition: border-color .2s var(--ease), transform .16s var(--ease);
+}
+.block-link:active { transform: scale(.98); border-color: var(--brand); }
+.block-link__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.block-link__text { font-weight: 700; font-size: 15px; }
+.block-link__desc { font-size: 13px; color: var(--muted); }
+
 /* -------------------------------------------------------------- интро */
 
 .hero { text-align: center; padding-top: 8px; }

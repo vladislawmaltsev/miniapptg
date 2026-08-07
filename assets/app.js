@@ -20,9 +20,15 @@
     return {
       startParam: unsafe.start_param || qs.get('tgWebAppStartParam') || qs.get('startapp') || null,
       queryId: unsafe.query_id || null,
-      user: unsafe.user || null
+      user: unsafe.user || null,
+      // mode=menu — открыть материалы вместо анкеты (задаётся URL приложения в BotFather),
+      // section=<id> — сразу нужный раздел меню
+      mode: qs.get('mode'),
+      section: qs.get('section')
     };
   })();
+
+  var CONTENT = window.UMSKUL_CONTENT || { sections: [] };
 
   /* ----------------------------------------------------------- данные -- */
 
@@ -151,8 +157,31 @@
   /* --------------------------------------------------------- состояние -- */
 
   var STORAGE_KEY = 'umskul_quiz_v1';
+  var DONE_KEY = 'umskul_quiz_done_v1';
+
+  /** Анкета уже была отправлена с этого устройства. */
+  function quizDone() {
+    try { return !!localStorage.getItem(DONE_KEY); } catch (e) { return false; }
+  }
+
+  /** Есть ли куда возвращаться из анкеты: меню доступно по ссылке или по отметке. */
+  function menuAvailable() {
+    return launch.mode === 'menu' || quizDone();
+  }
+
+  /**
+   * Что показывать на старте: анкету или меню с материалами.
+   * Приоритет — явный ?mode= из ссылки, затем локальная отметка.
+   */
+  function initialView() {
+    if (launch.mode === 'menu') return 'menu';
+    if (launch.mode === 'quiz') return 'quiz';
+    return quizDone() ? 'menu' : 'quiz';
+  }
 
   var state = {
+    view: 'quiz', // quiz | menu | section
+    section: null, // id открытого раздела меню
     step: -1, // -1 = интро, 0..total()-1 = вопросы, total() = результат
     track: null, // express | full
     role: null,
@@ -810,6 +839,138 @@
     };
   }
 
+  /* -------------------------------------------------- меню материалов -- */
+
+  function sectionById(id) {
+    var list = CONTENT.sections || [];
+    for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
+    return null;
+  }
+
+  function openSection(id) {
+    state.section = id;
+    state.view = 'section';
+    haptic('light');
+    render(1);
+  }
+
+  /** Список разделов: показывается вместо анкеты тем, кто её уже заполнил. */
+  function stepMenu() {
+    var sections = CONTENT.sections || [];
+
+    var cards = h('div', { class: 'options stagger' }, sections.map(function (sec, i) {
+      var node = h('button', {
+        class: 'option',
+        type: 'button',
+        style: '--i:' + i,
+        onclick: function () { openSection(sec.id); }
+      }, [
+        h('span', { class: 'option__emoji', text: sec.emoji }),
+        h('span', { class: 'option__body' }, [
+          h('span', { class: 'option__title', text: sec.title }),
+          h('span', { class: 'option__desc', text: sec.desc })
+        ]),
+        h('span', { class: 'option__arrow', text: '›' })
+      ]);
+      return node;
+    }).concat([
+      // отдельным пунктом — возможность пройти диагностику заново
+      h('button', {
+        class: 'option option--muted',
+        type: 'button',
+        style: '--i:' + sections.length,
+        onclick: function () {
+          state.view = 'quiz';
+          state.step = -1;
+          state.sent = false;
+          haptic('light');
+          render(1);
+        }
+      }, [
+        h('span', { class: 'option__emoji', text: '🔄' }),
+        h('span', { class: 'option__body' }, [
+          h('span', { class: 'option__title', text: 'Пройти диагностику заново' }),
+          h('span', { class: 'option__desc', text: 'Если изменились предметы, класс или цель' })
+        ]),
+        h('span', { class: 'option__arrow', text: '›' })
+      ])
+    ]));
+
+    return {
+      node: h('div', { class: 'step' }, [
+        h('img', { class: 'menu__logo', src: 'assets/logo.svg', alt: 'Умскул', width: '72', height: '72' }),
+        h('h1', { class: 'step__title', text: CONTENT.title || 'Полезное о занятиях' }),
+        h('p', { class: 'step__subtitle', text: CONTENT.subtitle || '' }),
+        cards
+      ]),
+      cta: inTelegram ? 'Вернуться в чат' : 'Готово',
+      valid: true,
+      menu: true
+    };
+  }
+
+  /** Один раздел меню: блоки контента из assets/content.js. */
+  function stepSection() {
+    var sec = sectionById(state.section) || { title: 'Раздел', blocks: [] };
+
+    var blocks = (sec.blocks || []).map(function (block, i) {
+      var style = '--i:' + i;
+
+      if (block.type === 'bullets') {
+        return h('ul', { class: 'block-list', style: style }, (block.items || []).map(function (item) {
+          return h('li', { class: 'block-list__item', text: item });
+        }));
+      }
+
+      if (block.type === 'stats') {
+        return h('div', { class: 'block-stats', style: style }, (block.items || []).map(function (item) {
+          return h('div', { class: 'stat' }, [
+            h('div', { class: 'stat__value', text: item.value }),
+            h('div', { class: 'stat__label', text: item.label })
+          ]);
+        }));
+      }
+
+      if (block.type === 'quote') {
+        return h('figure', { class: 'block-quote', style: style }, [
+          h('blockquote', { class: 'block-quote__text', text: block.text }),
+          block.author ? h('figcaption', { class: 'block-quote__author', text: block.author }) : null
+        ]);
+      }
+
+      if (block.type === 'link') {
+        return h('a', {
+          class: 'block-link',
+          style: style,
+          href: block.url,
+          target: '_blank',
+          rel: 'noopener noreferrer',
+          onclick: function () { haptic('light'); }
+        }, [
+          h('span', { class: 'block-link__body' }, [
+            h('span', { class: 'block-link__text', text: block.text }),
+            block.desc ? h('span', { class: 'block-link__desc', text: block.desc }) : null
+          ]),
+          h('span', { class: 'option__arrow', text: '↗' })
+        ]);
+      }
+
+      return h('p', { class: 'block-text', style: style, text: block.text });
+    });
+
+    return {
+      node: h('div', { class: 'step' }, [
+        h('span', { class: 'step__eyebrow', text: (sec.emoji || '📚') + ' Материалы' }),
+        h('h1', { class: 'step__title', text: sec.title }),
+        sec.desc ? h('p', { class: 'step__subtitle', text: sec.desc }) : null,
+        h('div', { class: 'stagger' }, blocks)
+      ]),
+      cta: 'К списку разделов',
+      valid: true,
+      section: true
+    };
+  }
+
   /** Экран после успешной отправки по HTTP. */
   function stepSent() {
     return {
@@ -891,6 +1052,9 @@
   var current = null;
 
   function build() {
+    // режим меню не зависит от шага анкеты, поэтому проверяется первым
+    if (state.view === 'menu') return stepMenu();
+    if (state.view === 'section') return stepSection();
     if (state.step === -1) return stepIntro();
     if (state.step > total()) return stepSent();
     if (state.step === total()) return stepResult();
@@ -914,16 +1078,25 @@
     syncChrome();
     syncCta();
 
-    if (state.step === total() && !state.sent) {
+    if (state.view === 'quiz' && state.step === total() && !state.sent) {
       haptic('success');
       confetti();
     }
   }
 
   function syncChrome() {
+    if (state.view !== 'quiz') {
+      el.progress.hidden = true;
+      el.back.hidden = state.view !== 'section';
+      if (inTelegram && tg.BackButton) {
+        if (state.view === 'section') tg.BackButton.show(); else tg.BackButton.hide();
+      }
+      return;
+    }
+
     var isQuestion = state.step >= 0 && state.step < total();
     el.progress.hidden = !isQuestion;
-    el.back.hidden = state.step <= -1 || state.step > total();
+    el.back.hidden = (state.step <= -1 && !menuAvailable()) || state.step > total();
 
     if (isQuestion) {
       var done = state.step;
@@ -948,7 +1121,7 @@
 
     // Кнопка «назад» в клиенте Telegram
     if (inTelegram && tg.BackButton) {
-      if (state.step > -1 && state.step <= total()) tg.BackButton.show(); else tg.BackButton.hide();
+      if ((state.step > -1 || menuAvailable()) && state.step <= total()) tg.BackButton.show(); else tg.BackButton.hide();
     }
   }
 
@@ -995,6 +1168,9 @@
     var valid = typeof current.valid === 'function' ? current.valid() : current.valid;
     if (!valid) { haptic('rigid'); return; }
 
+    if (state.view === 'section') { backToMenu(); return; }
+    if (state.view === 'menu') { if (inTelegram) tg.close(); return; }
+
     if (state.step > total()) { if (inTelegram) tg.close(); return; }
     if (state.step === total()) { submit(); return; }
 
@@ -1004,8 +1180,20 @@
     render(1);
   }
 
+  function backToMenu() {
+    state.view = 'menu';
+    state.section = null;
+    haptic('light');
+    render(-1);
+  }
+
   function back() {
-    if (state.busy || state.step > total()) return;
+    if (state.busy) return;
+    if (state.view === 'section') { backToMenu(); return; }
+    if (state.view === 'menu') { if (inTelegram) tg.close(); return; }
+    if (state.step > total()) return;
+    // из анкеты, открытой из меню, возвращаемся в меню
+    if (state.step <= -1 && menuAvailable()) { backToMenu(); return; }
     if (state.step <= -1) { if (inTelegram) tg.close(); return; }
     state.step -= 1;
     state.sent = false;
@@ -1064,7 +1252,11 @@
   }
 
   function finishTelegramSession() {
-    try { localStorage.removeItem(STORAGE_KEY); } catch (e) { /* no-op */ }
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+      // при следующем открытии покажем меню, а не анкету
+      localStorage.setItem(DONE_KEY, new Date().toISOString());
+    } catch (e) { /* no-op */ }
     if (inTelegram && typeof tg.disableClosingConfirmation === 'function') tg.disableClosingConfirmation();
   }
 
@@ -1189,6 +1381,12 @@
       if (tg.BackButton) tg.BackButton.onClick(back);
       if (typeof tg.enableClosingConfirmation === 'function') tg.enableClosingConfirmation();
       if (typeof tg.disableVerticalSwipes === 'function') tg.disableVerticalSwipes();
+    }
+
+    state.view = initialView();
+    if (state.view === 'menu' && launch.section && sectionById(launch.section)) {
+      state.section = launch.section;
+      state.view = 'section';
     }
 
     render(1);
