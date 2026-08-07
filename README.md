@@ -81,6 +81,9 @@ python3 -m http.server 4173
 
 ## Публикация на GitHub Pages
 
+Публикацией страницы занимается `.github/workflows/pages.yml`, сборкой образа
+приёмника — `.github/workflows/deploy-webhook.yml`.
+
 В репозитории есть workflow `.github/workflows/pages.yml`: включите Pages в
 `Settings → Pages → Build and deployment → GitHub Actions`, после пуша в основную ветку
 мини-апп будет доступен по `https://<user>.github.io/<repo>/`.
@@ -307,47 +310,63 @@ curl http://localhost:8080/          # {"ok": true, "service": "umskul-webhook"}
 
 #### Пример: Yandex Cloud Serverless Containers
 
-Платите только за запросы, HTTPS выдаётся сразу. Порядок такой.
+Платите только за запросы, HTTPS выдаётся сразу.
 
-**1. Собрать образ и положить в реестр.** Serverless Containers запускает образ
-из Container Registry, поэтому сначала:
+**Важно про сборку образа.** Serverless Containers запускает образ из Container
+Registry, а Docker есть не везде: в Yandex Cloud Shell его нет, там `docker build`
+завершится ошибкой `docker: command not found`. Поэтому образ собирает GitHub Actions —
+воркфлоу `.github/workflows/deploy-webhook.yml` уже лежит в репозитории.
+
+**1. Создать реестр** (в Cloud Shell или локально через `yc`):
 
 ```bash
 yc container registry create --name umskul
-yc container registry configure-docker          # логин в cr.yandex
-
-REGISTRY_ID=$(yc container registry get --name umskul --format json | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
-docker build -f deploy/Dockerfile -t cr.yandex/$REGISTRY_ID/umskul-webhook:v1 .
-docker push cr.yandex/$REGISTRY_ID/umskul-webhook:v1
+yc container registry list        # отсюда взять ID вида crp1a2b3...
 ```
 
-**2. Заполнить форму ревизии контейнера:**
+Если реестр случайно создан несколько раз, лишние удаляются по идентификатору:
+`yc container registry delete --id <id>`.
+
+**2. Завести сервисный аккаунт для сборки** и выдать ему роль
+`container-registry.images.pusher`, затем создать авторизованный ключ:
+
+```bash
+yc iam service-account create --name umskul-ci
+yc resource-manager folder add-access-binding <folder-id> \
+  --role container-registry.images.pusher \
+  --subject serviceAccount:<id сервисного аккаунта>
+yc iam key create --service-account-name umskul-ci --output key.json
+```
+
+**3. Добавить секреты в GitHub** (`Settings → Secrets and variables → Actions`):
+`YC_REGISTRY_ID` — идентификатор реестра, `YC_SA_KEY` — содержимое `key.json` целиком.
+После этого воркфлоу можно запустить вручную со вкладки Actions, и образ появится
+в реестре под тегами с хешем коммита и `latest`.
+
+**4. Заполнить форму ревизии контейнера:**
 
 | Поле | Значение |
 |---|---|
 | Режим работы | HTTP-сервер |
 | vCPU | 1, гарантированная доля 20% |
 | RAM | 256 МБ |
-| URL образа | `cr.yandex/<registry-id>/umskul-webhook:v1` |
+| URL образа | образ `umskul-webhook` из вашего реестра |
 | Команда, аргументы, рабочая директория | оставить пустыми — они заданы в образе |
 | Таймаут | 30 секунд |
-| Сервисный аккаунт | с ролями `container-registry.images.puller` и, если используете Lockbox, `lockbox.payloadViewer` |
+| Сервисный аккаунт | с ролью `container-registry.images.puller` (и `lockbox.payloadViewer`, если используете Lockbox) |
 
-**3. Переменные окружения** — из `deploy/env.example`, кроме `PORT`: его Serverless
-Containers передаёт сам. `BOT_TOKEN` и `BM_TRIGGER_URL` лучше не вбивать текстом,
-а положить в Yandex Lockbox и подключить через блок «Секреты Yandex Lockbox».
+**5. Переменные окружения** — из `deploy/env.example`, кроме `PORT`: его Serverless
+Containers передаёт сам. `BOT_TOKEN` и `BM_TRIGGER_URL` лучше положить в Yandex Lockbox
+и подключить через блок «Секреты Yandex Lockbox».
 
-**4. Открыть публичный доступ.** По умолчанию вызов контейнера требует авторизации
-IAM, и мини-апп получит 401. Нужно включить публичный доступ к контейнеру
-(роль `serverless.containers.invoker` для `allUsers`) — иначе анкета не отправится.
+**6. Включить переключатель «Публичный контейнер».** По умолчанию вызов требует
+авторизации IAM, и мини-апп получит 401 — анкета не отправится.
 
-**5. Забрать адрес** вида `https://bba***.containers.yandexcloud.net/` и прописать
-его в `assets/config.js`. Путь может быть любым — приёмник обрабатывает все,
-так что `.../lead` тоже подойдёт.
+**7. Забрать «Ссылку для вызова»** вида `https://bba***.containers.yandexcloud.net/`
+и прописать её в `assets/config.js`. Путь может быть любым — приёмник обрабатывает все.
 
-Холодный старт у образа со стандартной библиотекой — доли секунды, в таймаут
-отправки укладывается с запасом. Если захочется убрать его совсем, включите
-провижининг, но для потока анкет это не обязательно.
+Холодный старт у образа со стандартной библиотекой — доли секунды, в таймаут отправки
+укладывается с запасом.
 
 ### Вариант B: свой сервер (VPS)
 
