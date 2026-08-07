@@ -1,3 +1,8 @@
 __pycache__/
 *.pyc
 .DS_Store
+
+# файлы с секретами: BOT_TOKEN и адреса триггеров храним только локально
+.env
+.env.*
+!deploy/env.example

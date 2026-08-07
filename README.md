@@ -66,6 +66,7 @@ assets/logo.svg       знак Умскул (шапка + фавикон)
 server/webhook.py     приёмник: проверка подписи initData и пересылка лида
 server/test_webhook.py тесты приёмника
 bot/bot.py            вариант с reply-клавиатурой и sendData (aiogram 3)
+deploy/               Dockerfile, systemd-юнит, Caddyfile и шаблон переменных
 ```
 
 ## Локальный запуск
@@ -263,6 +264,101 @@ python server/test_webhook.py   # 22 теста: подпись, доставк�
 Остальные переменные окружения перечислены в докстринге `server/webhook.py`:
 `DELIVERY` (`auto` | `session` | `trigger` | `forward` | `log`), `BM_API_BASE`,
 `BM_RETURN_RESPONSE`, `FORWARD_URL`, `INIT_DATA_MAX_AGE`, `REQUIRE_SIGNATURE`, `PORT`.
+
+## Деплой приёмника
+
+Приёмник (`server/webhook.py`) — маленький постоянно работающий веб-сервис. Он нужен
+между мини-аппом и бот-конструктором по трём причинам: проверяет подпись `initData`
+(иначе кто угодно пришлёт анкету от чужого Telegram ID), держит токен бота и адрес
+триггера вне кода страницы, и снимает вопрос CORS.
+
+**Почему обязательно HTTPS.** Страница мини-аппа открывается по HTTPS, а браузер
+запрещает запросы с HTTPS-страницы на HTTP-адрес (mixed content) — отправка анкеты
+просто не уйдёт. Плюс адрес должен быть постоянным и доступным круглосуточно:
+лид может заполнить анкету в любой момент.
+
+Секреты (`BOT_TOKEN` и URL триггера) задаются переменными окружения и в репозиторий
+не коммитятся. Шаблон — `deploy/env.example`.
+
+### Вариант A: контейнер на PaaS (проще всего)
+
+В `deploy/Dockerfile` лежит готовый образ: зависимостей нет, собирается за секунды,
+слушает порт из переменной `PORT`, отвечает на `GET /` для health-check.
+
+Подойдёт любой хостинг, который умеет запускать контейнер и сам выдаёт HTTPS-домен —
+Yandex Cloud Serverless Containers, Timeweb Cloud, Amvera, Selectel, Render, Railway,
+Fly.io. Порядок везде один:
+
+1. Подключить репозиторий или загрузить образ, указать путь к Dockerfile — `deploy/Dockerfile`.
+2. В панели задать переменные окружения из `deploy/env.example`.
+3. Задеплоить и забрать выданный адрес вида `https://umskul-webhook.example.app`.
+
+Локально то же самое проверяется так:
+
+```bash
+docker build -f deploy/Dockerfile -t umskul-webhook .
+docker run -p 8080:8080 --env-file .env umskul-webhook
+curl http://localhost:8080/          # {"ok": true, "service": "umskul-webhook"}
+```
+
+Осторожно с бесплатными тарифами, которые «усыпляют» сервис при простое: первый
+запрос после сна может занять полминуты и не уложиться в таймаут отправки
+(`submitTimeout`, по умолчанию 15 секунд). Для боевого потока берите тариф без сна.
+
+### Вариант B: свой сервер (VPS)
+
+Полный контроль, из минусов — обновления и сертификаты на вас. В `deploy/` лежат
+оба нужных файла:
+
+1. Завести A-запись домена (например `api.umskul-quiz.ru`) на IP сервера, открыть порты 80 и 443.
+2. Положить репозиторий в `/opt/umskul`, создать пользователя `umskul`.
+3. Записать переменные в `/etc/umskul-webhook.env` (права `600`).
+4. Скопировать `deploy/umskul-webhook.service` в `/etc/systemd/system/`, затем
+   `systemctl enable --now umskul-webhook`.
+5. Поставить Caddy и взять `deploy/Caddyfile` — сертификат Let's Encrypt он получит
+   и продлит сам.
+
+### Вариант C: туннель (только для проверки)
+
+Для разработки хватит туннеля — постоянный адрес и аптайм он не даёт, в бой не годится:
+
+```bash
+cloudflared tunnel --url http://localhost:8080
+```
+
+### После деплоя
+
+Пропишите адрес в `assets/config.js` и запушьте — GitHub Pages пересоберётся сам:
+
+```js
+window.UMSKUL_CONFIG = {
+  submitUrl: 'https://umskul-webhook.example.app/lead',
+  submitTimeout: 15000,
+  extra: {}
+};
+```
+
+Проверить, что всё сошлось:
+
+```bash
+# 1. сервис живёт и отвечает по HTTPS
+curl -i https://umskul-webhook.example.app/
+
+# 2. запрос без подписи отбивается — значит проверка initData работает
+curl -i -X POST https://umskul-webhook.example.app/lead \
+  -H 'Content-Type: application/json' -d '{"data":{}}'      # ожидаем 401
+
+# 3. CORS разрешён именно для страницы мини-аппа
+curl -i -X OPTIONS https://umskul-webhook.example.app/lead \
+  -H 'Origin: https://<user>.github.io'                      # в ответе Access-Control-Allow-Origin
+```
+
+Частая ошибка — указать в `ALLOWED_ORIGIN` полный адрес страницы. Нужен именно origin,
+без пути: `https://<user>.github.io`, а не `https://<user>.github.io/<repo>/`.
+
+Дальше пройдите анкету в Telegram и посмотрите логи приёмника: там будет строка
+`анкета доставлена в сессию ...` или предупреждение с причиной, по которой
+доставка ушла в запасной канал.
 
 ## Вариант с reply-клавиатурой
 

@@ -1,0 +1,14 @@
+# Caddy сам получает и продлевает сертификат Let's Encrypt — отдельно
+# настраивать HTTPS не нужно. Положить в /etc/caddy/Caddyfile, затем:
+#   sudo systemctl reload caddy
+#
+# Перед этим заведите A-запись домена на IP сервера и откройте порты 80 и 443.
+
+api.example.com {
+	# приёмник слушает локально, наружу его отдаёт Caddy уже по HTTPS
+	reverse_proxy 127.0.0.1:8080
+
+	log {
+		output file /var/log/caddy/umskul-webhook.log
+	}
+}

@@ -1,0 +1,30 @@
+# systemd-юнит для варианта «свой сервер».
+# Положить в /etc/systemd/system/umskul-webhook.service, затем:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now umskul-webhook
+#   sudo systemctl status umskul-webhook
+#   journalctl -u umskul-webhook -f      # логи
+
+[Unit]
+Description=Umskul mini app webhook
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=umskul
+WorkingDirectory=/opt/umskul
+# файл с BOT_TOKEN и остальными переменными; права 600, владелец umskul
+EnvironmentFile=/etc/umskul-webhook.env
+ExecStart=/usr/bin/python3 /opt/umskul/server/webhook.py
+Restart=always
+RestartSec=3
+
+# минимальная изоляция процесса
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
