@@ -305,6 +305,50 @@ curl http://localhost:8080/          # {"ok": true, "service": "umskul-webhook"}
 запрос после сна может занять полминуты и не уложиться в таймаут отправки
 (`submitTimeout`, по умолчанию 15 секунд). Для боевого потока берите тариф без сна.
 
+#### Пример: Yandex Cloud Serverless Containers
+
+Платите только за запросы, HTTPS выдаётся сразу. Порядок такой.
+
+**1. Собрать образ и положить в реестр.** Serverless Containers запускает образ
+из Container Registry, поэтому сначала:
+
+```bash
+yc container registry create --name umskul
+yc container registry configure-docker          # логин в cr.yandex
+
+REGISTRY_ID=$(yc container registry get --name umskul --format json | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
+docker build -f deploy/Dockerfile -t cr.yandex/$REGISTRY_ID/umskul-webhook:v1 .
+docker push cr.yandex/$REGISTRY_ID/umskul-webhook:v1
+```
+
+**2. Заполнить форму ревизии контейнера:**
+
+| Поле | Значение |
+|---|---|
+| Режим работы | HTTP-сервер |
+| vCPU | 1, гарантированная доля 20% |
+| RAM | 256 МБ |
+| URL образа | `cr.yandex/<registry-id>/umskul-webhook:v1` |
+| Команда, аргументы, рабочая директория | оставить пустыми — они заданы в образе |
+| Таймаут | 30 секунд |
+| Сервисный аккаунт | с ролями `container-registry.images.puller` и, если используете Lockbox, `lockbox.payloadViewer` |
+
+**3. Переменные окружения** — из `deploy/env.example`, кроме `PORT`: его Serverless
+Containers передаёт сам. `BOT_TOKEN` и `BM_TRIGGER_URL` лучше не вбивать текстом,
+а положить в Yandex Lockbox и подключить через блок «Секреты Yandex Lockbox».
+
+**4. Открыть публичный доступ.** По умолчанию вызов контейнера требует авторизации
+IAM, и мини-апп получит 401. Нужно включить публичный доступ к контейнеру
+(роль `serverless.containers.invoker` для `allUsers`) — иначе анкета не отправится.
+
+**5. Забрать адрес** вида `https://bba***.containers.yandexcloud.net/` и прописать
+его в `assets/config.js`. Путь может быть любым — приёмник обрабатывает все,
+так что `.../lead` тоже подойдёт.
+
+Холодный старт у образа со стандартной библиотекой — доли секунды, в таймаут
+отправки укладывается с запасом. Если захочется убрать его совсем, включите
+провижининг, но для потока анкет это не обязательно.
+
 ### Вариант B: свой сервер (VPS)
 
 Полный контроль, из минусов — обновления и сертификаты на вас. В `deploy/` лежат
