@@ -137,6 +137,37 @@
     { id: 'never',    emoji: '✨', title: 'Нет, будет первый раз' }
   ];
 
+  /**
+   * Тексты отбивок — экранов-реакций на ответ. Формулировки черновые:
+   * правьте здесь, трогать код шагов для этого не нужно.
+   *   junior — выбран 5 или 6 класс;
+   *   client — «Уже в Умскул», перед уточнением текущих предметов.
+   */
+  var NOTICE_TEXT = {
+    junior: {
+      eyebrow: '🎈 Младшие классы',
+      title: 'Для 5–6 класса программа устроена иначе',
+      lead: 'Здесь ещё нет экзамена, поэтому и подготовка другая: короче занятия, больше разбора школьной программы и упор на интерес к предмету.',
+      items: [
+        'Занятия по школьной программе, а не по формату экзамена',
+        'Спокойный темп — без гонки за баллами',
+        'Менеджер расскажет про набор и подберёт группу'
+      ],
+      cta: 'Понятно, продолжим'
+    },
+    client: {
+      eyebrow: '🧡 Вы уже с нами',
+      title: 'Отлично, вы уже занимаетесь в Умскул',
+      lead: 'Значит, часть данных у нас есть. Уточним, по каким предметам идут занятия сейчас — чтобы менеджер предложил дополнение к программе, а не то же самое ещё раз.',
+      items: [
+        'Не будем предлагать курс, который уже оплачен',
+        'Посмотрим, чем дополнить текущую подготовку',
+        'Учтём это при расчёте стоимости'
+      ],
+      cta: 'Уточнить предметы'
+    }
+  };
+
   var PREP = [
     { id: 'none',     emoji: '🌱', title: 'Пока никак', p: { student: 'Ещё не начинал(а) готовиться', parent: 'Ребёнок ещё не начинал готовиться' } },
     { id: 'self',     emoji: '📚', title: 'Готовлюсь сам(а)', p: { student: 'Разбираю темы и решаю варианты сам(а)', parent: 'Ребёнок занимается самостоятельно' } },
@@ -148,11 +179,45 @@
   // Экспресс — только базовая квалификация; подробная — весь набор вопросов
   var TRACK_STEPS = {
     express: ['role', 'grade', 'subjects'],
-    full: ['role', 'grade', 'subjects', 'level', 'goal', 'priorities', 'prep', 'online']
+    full: ['role', 'grade', 'subjects', 'level', 'goal', 'priorities', 'online', 'prep']
   };
 
-  function steps() { return TRACK_STEPS[state.track] || TRACK_STEPS.full; }
+  // Экраны-отбивки: это не вопросы, поэтому в счётчик прогресса они не попадают
+  var NOTICES = ['junior', 'client'];
+
+  function isNotice(id) { return NOTICES.indexOf(id) > -1; }
+
+  function insertAfter(list, id, added) {
+    var at = list.indexOf(id);
+    if (at > -1) Array.prototype.splice.apply(list, [at + 1, 0].concat(added));
+  }
+
+  /**
+   * Порядок экранов. Кроме вопросов ветки сюда попадают отбивки и уточняющий
+   * вопрос действующим ученикам — они зависят от уже данных ответов, поэтому
+   * список пересобирается на каждый рендер.
+   */
+  function steps() {
+    var list = (TRACK_STEPS[state.track] || TRACK_STEPS.full).slice();
+    if (state.grade === 5 || state.grade === 6) insertAfter(list, 'grade', ['junior']);
+    if (state.prep === 'umschool') insertAfter(list, 'prep', ['client', 'current']);
+    return list;
+  }
+
   function total() { return steps().length; }
+
+  /** Сколько в потоке настоящих вопросов — без отбивок. */
+  function questionCount() {
+    return steps().filter(function (id) { return !isNotice(id); }).length;
+  }
+
+  /** Номер вопроса для прогресса: отбивки, пройденные до него, не считаем. */
+  function questionNumber(index) {
+    var list = steps();
+    var n = 0;
+    for (var i = 0; i <= index && i < list.length; i++) if (!isNotice(list[i])) n += 1;
+    return n;
+  }
 
   /* --------------------------------------------------------- состояние -- */
 
@@ -192,6 +257,7 @@
     subjects: [],
     goals: {},
     prep: null,
+    currentSubjects: [], // по каким предметам уже занимается в Умскул
     sent: false,
     busy: false,
     error: null
@@ -209,6 +275,7 @@
       state.priorities = Array.isArray(saved.priorities) ? saved.priorities : [];
       state.prep = saved.prep || null;
       state.online = saved.online || null;
+      state.currentSubjects = Array.isArray(saved.currentSubjects) ? saved.currentSubjects : [];
     }
   } catch (e) { /* приватный режим — просто работаем без сохранения */ }
 
@@ -217,7 +284,7 @@
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
         track: state.track, role: state.role, grade: state.grade, subjects: state.subjects,
         goals: state.goals, level: state.level, priorities: state.priorities,
-        prep: state.prep, online: state.online
+        prep: state.prep, online: state.online, currentSubjects: state.currentSubjects
       }));
     } catch (e) { /* no-op */ }
   }
@@ -371,6 +438,7 @@
     state.priorities = [];
     state.prep = null;
     state.online = null;
+    state.currentSubjects = [];
   }
 
   function stepRole() {
@@ -508,17 +576,10 @@
 
     updateCounter();
 
-    var hint = exam === 'ege'
-      ? 'Отметьте все предметы ЕГЭ, включая обязательные.'
-      : exam === 'oge'
-        ? 'Отметьте предметы ОГЭ: два обязательных и предметы по выбору.'
-        : 'Отметьте предметы, которые хочется подтянуть в этом году.';
-
     return {
       node: h('div', { class: 'step' }, [
         h('span', { class: 'step__eyebrow', text: '📚 ' + (exam === 'school' ? 'Предметы' : EXAM_LABEL[exam]) }),
         h('h1', { class: 'step__title', text: who('Что будешь сдавать?', 'Что будет сдавать ребёнок?') }),
-        h('p', { class: 'step__subtitle', text: hint }),
         chips,
         counter
       ]),
@@ -651,7 +712,7 @@
         h('p', { class: 'step__subtitle', text: 'Честный ответ поможет не предлагать лишнего.' }),
         options
       ]),
-      cta: 'Показать результат',
+      cta: 'Далее',
       valid: function () { return !!state.prep; }
     };
   }
@@ -778,6 +839,76 @@
     };
   }
 
+  /** Отбивка: экран-реакция на ответ, вопросов не задаёт. */
+  function notice(id) {
+    var copy = NOTICE_TEXT[id];
+    return {
+      node: h('div', { class: 'step' }, [
+        h('span', { class: 'step__eyebrow', text: copy.eyebrow }),
+        h('h1', { class: 'step__title', text: copy.title }),
+        h('p', { class: 'step__subtitle', text: copy.lead }),
+        h('ul', { class: 'notice__list stagger' }, copy.items.map(function (text, i) {
+          return h('li', { class: 'notice__item', style: '--i:' + i, text: text });
+        }))
+      ]),
+      cta: copy.cta,
+      valid: true,
+      notice: true
+    };
+  }
+
+  function stepJunior() { return notice('junior'); }
+  function stepClient() { return notice('client'); }
+
+  /** Только для тех, кто уже занимается: по каким предметам он с нами. */
+  function stepCurrent() {
+    var counter = h('p', { class: 'counter' });
+    var list = subjectList().filter(function (s) { return s.id !== SUBJECT_UNKNOWN.id; });
+
+    function updateCounter() {
+      var n = state.currentSubjects.length;
+      counter.textContent = n === 0
+        ? 'Отметьте хотя бы один предмет'
+        : 'Выбрано: ' + n + ' ' + plural(n, ['предмет', 'предмета', 'предметов']);
+    }
+
+    var chips = h('div', { class: 'chips stagger' }, list.map(function (s, i) {
+      var node = h('button', {
+        class: 'chip' + (state.currentSubjects.indexOf(s.id) > -1 ? ' chip--selected' : ''),
+        type: 'button',
+        style: '--i:' + i,
+        onclick: function () {
+          var idx = state.currentSubjects.indexOf(s.id);
+          if (idx > -1) { state.currentSubjects.splice(idx, 1); node.classList.remove('chip--selected'); }
+          else { state.currentSubjects.push(s.id); node.classList.add('chip--selected'); }
+          haptic('select');
+          persist();
+          updateCounter();
+          syncCta();
+        }
+      }, [
+        h('span', { text: s.emoji }),
+        h('span', { text: s.name })
+      ]);
+      node.dataset.value = s.id;
+      return node;
+    }));
+
+    updateCounter();
+
+    return {
+      node: h('div', { class: 'step' }, [
+        h('span', { class: 'step__eyebrow', text: '🧡 Текущие занятия' }),
+        h('h1', { class: 'step__title', text: who('По каким предметам ты уже с нами?', 'По каким предметам ребёнок уже с нами?') }),
+        h('p', { class: 'step__subtitle', text: 'Отметьте предметы, по которым занятия идут прямо сейчас.' }),
+        chips,
+        counter
+      ]),
+      cta: 'Далее',
+      valid: function () { return state.currentSubjects.length > 0; }
+    };
+  }
+
   function stepResult() {
     var exam = currentExam();
     var unit = goalUnit();
@@ -807,8 +938,14 @@
     ];
     if (levelItem) rows.push(['Уровень', levelItem.title]);
     if (priorityNames.length) rows.push(['Важно', priorityNames.join('\n')]);
-    if (prepItem) rows.push(['Подготовка', prepItem.title]);
     if (onlineItem) rows.push(['Опыт онлайна', onlineItem.title]);
+    if (prepItem) rows.push(['Подготовка', prepItem.title]);
+    if (state.prep === 'umschool' && state.currentSubjects.length) {
+      rows.push(['Уже занимается', state.currentSubjects.map(function (id) {
+        var s = subjectById(id);
+        return s ? s.name : id;
+      }).join('\n')]);
+    }
 
     var summary = h('div', { class: 'summary' }, rows.map(function (r, i) {
       return h('div', { class: 'summary__row', style: '--i:' + i }, [
@@ -821,14 +958,8 @@
       node: h('div', { class: 'step' }, [
         h('span', { class: 'result__badge', text: '✨ Готово' }),
         h('h1', { class: 'step__title', style: 'margin-top:14px', text: who('Отлично, мы всё поняли!', 'Отлично, анкета заполнена!') }),
-        h('p', { class: 'step__subtitle', text: 'Вот что мы записали. Куратор Умскул подберёт программу под эти вводные.' }),
+        h('p', { class: 'step__subtitle', text: 'Вот что мы записали. Менеджер Умскул подберёт программу под эти вводные.' }),
         summary,
-        h('div', { class: 'plan' }, [
-          h('div', { class: 'plan__title', text: recommendation(exam) }),
-          h('ul', { class: 'plan__list' }, planItems(exam, unit).map(function (t) {
-            return h('li', { class: 'plan__item', text: t });
-          }))
-        ]),
         h('p', { class: 'note', text: transport() === 'clipboard'
           ? 'Мини-апп открыт вне Telegram: отправка в бот недоступна.'
           : 'Нажмите кнопку ниже — ответы уйдут менеджеру Умскул.' })
@@ -978,8 +1109,8 @@
         mascot(),
         h('h1', { class: 'hero__title', text: 'Анкета отправлена!' }),
         h('p', { class: 'hero__text', text: who(
-          'Куратор Умскул уже видит твои ответы и напишет в этот чат с подборкой курсов.',
-          'Куратор Умскул уже видит ваши ответы и напишет в этот чат с подборкой курсов.'
+          'Менеджер Умскул уже видит твои ответы и напишет в этот чат с подборкой курсов.',
+          'Менеджер Умскул уже видит ваши ответы и напишет в этот чат с подборкой курсов.'
         ) })
       ]),
       cta: inTelegram ? 'Вернуться в чат' : 'Готово',
@@ -999,26 +1130,6 @@
     return 'Рекомендуем курс по школьной программе';
   }
 
-  function planItems(exam, unit) {
-    // подсказки по новым ответам добавляются ниже, если ветка подробная
-    var items = [
-      'Онлайн-занятия с преподавателями и личным куратором',
-      'Домашние задания с проверкой и разбором ошибок'
-    ];
-    if (exam === 'school') items.push('Упор на пробелы школьной программы');
-    else items.push('Пробники в формате ' + EXAM_LABEL[exam] + ' каждый месяц');
-    if (unit === 'score' && averageGoal() >= 90) items.push('Дополнительные вебинары по задачам второй части');
-    if (state.level === 'zero') items.push('Стартуем с базовых тем — без пробелов в фундаменте');
-    if (state.level === 'structure') items.push('Соберём знания в систему: план тем от простого к сложному');
-    if (state.priorities.indexOf('control') > -1) items.push('Куратор следит за дедлайнами и не даёт забросить');
-    if (state.priorities.indexOf('price') > -1) items.push('Подберём тариф под бюджет и расскажем про рассрочку');
-    if (state.online === 'never') items.push('Покажем платформу и проведём вводное занятие');
-    if (state.prep === 'school') items.push('Дополним школьную программу форматом экзамена');
-    if (state.prep === 'umschool') items.push('Учтём ваш текущий курс — предложим апгрейд, а не дубль');
-    if (state.subjects.length >= 3) items.push('Комплект из ' + state.subjects.length + ' предметов — со скидкой за пакет');
-    return items;
-  }
-
   function averageGoal() {
     var vals = state.subjects.map(function (id) { return state.goals[id]; }).filter(function (v) { return typeof v === 'number'; });
     if (!vals.length) return 0;
@@ -1027,7 +1138,8 @@
 
   var BUILDERS = {
     role: stepRole, grade: stepGrade, subjects: stepSubjects, level: stepLevel,
-    goal: stepGoal, priorities: stepPriorities, prep: stepPrep, online: stepOnline
+    goal: stepGoal, priorities: stepPriorities, online: stepOnline, prep: stepPrep,
+    junior: stepJunior, client: stepClient, current: stepCurrent
   };
 
   /* -------------------------------------------------------- утилиты UI -- */
@@ -1058,22 +1170,25 @@
     if (state.step === -1) return stepIntro();
     if (state.step > total()) return stepSent();
     if (state.step === total()) return stepResult();
-    return BUILDERS[steps()[state.step]]();
+
+    var view = BUILDERS[steps()[state.step]]();
+    // последний экран перед результатом всегда обещает результат,
+    // где бы он ни оказался: набор шагов зависит от ответов
+    if (state.step === total() - 1) view.cta = 'Показать результат';
+    return view;
   }
 
   function render(direction) {
     current = build();
 
-    var old = el.screen.firstElementChild;
-    if (old) {
-      old.classList.add('step--leaving', direction >= 0 ? 'step--leave-fwd' : 'step--leave-back');
-      old.addEventListener('animationend', function () { old.remove(); }, { once: true });
-      setTimeout(function () { if (old.parentNode) old.remove(); }, 400);
-    }
+    // Старый шаг убираем сразу. Раньше он доигрывал анимацию ухода поверх
+    // нового — при возврате назад это выглядело как два вопроса на экране.
+    el.screen.innerHTML = '';
 
     current.node.classList.add(direction >= 0 ? 'step--enter-fwd' : 'step--enter-back');
     el.screen.appendChild(current.node);
-    window.scrollTo({ top: 0, behavior: old ? 'smooth' : 'auto' });
+    // мгновенно, а не smooth: плавный скролл наезжал на анимацию появления
+    window.scrollTo(0, 0);
 
     syncChrome();
     syncCta();
@@ -1094,23 +1209,25 @@
       return;
     }
 
-    var isQuestion = state.step >= 0 && state.step < total();
+    // на отбивке прогресс прячем: это не вопрос, номер бы «застревал»
+    var isQuestion = state.step >= 0 && state.step < total() && !isNotice(steps()[state.step]);
     el.progress.hidden = !isQuestion;
     el.back.hidden = (state.step <= -1 && !menuAvailable()) || state.step > total();
 
     if (isQuestion) {
-      var done = state.step;
-      var pct = Math.round(done / total() * 100);
+      var count = questionCount();
+      var num = questionNumber(state.step);
+      var pct = Math.round((num - 1) / count * 100);
       el.fill.style.width = Math.max(pct, 4) + '%';
       el.pct.textContent = pct + '%';
-      el.label.textContent = 'Вопрос ' + (state.step + 1) + ' из ' + total();
+      el.label.textContent = 'Вопрос ' + num + ' из ' + count;
 
-      if (el.dots.childElementCount !== total()) {
+      if (el.dots.childElementCount !== count) {
         el.dots.innerHTML = '';
-        for (var i = 0; i < total(); i++) el.dots.appendChild(h('span', { class: 'progress__dot' }));
+        for (var i = 0; i < count; i++) el.dots.appendChild(h('span', { class: 'progress__dot' }));
       }
       Array.prototype.forEach.call(el.dots.children, function (d, i) {
-        d.className = 'progress__dot' + (i < state.step ? ' progress__dot--done' : i === state.step ? ' progress__dot--current' : '');
+        d.className = 'progress__dot' + (i < num - 1 ? ' progress__dot--done' : i === num - 1 ? ' progress__dot--current' : '');
       });
     }
 
@@ -1153,7 +1270,7 @@
   function hintFor(valid) {
     if (state.error) return state.error + ' — проверьте связь и попробуйте ещё раз';
     var id = stepId();
-    if (id === 'subjects' && !valid) return 'Отметьте хотя бы один предмет';
+    if ((id === 'subjects' || id === 'current') && !valid) return 'Отметьте хотя бы один предмет';
     if (id === 'priorities' && !valid) return 'Отметьте хотя бы один пункт';
     if (id === 'goal') return 'Можно вернуться и изменить в любой момент';
     return '';
@@ -1219,6 +1336,11 @@
         return { id: id, name: s ? s.name : id, goal: state.goals[id] };
       }),
       goal_avg: averageGoal(),
+      // непустой список только у действующих учеников — см. шаг «current»
+      current_subjects: state.prep === 'umschool' ? state.currentSubjects.map(function (id) {
+        var s = subjectById(id);
+        return { id: id, name: s ? s.name : id };
+      }) : [],
       level: state.level,
       priorities: state.priorities.slice(),
       preparation: state.prep,

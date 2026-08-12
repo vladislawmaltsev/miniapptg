@@ -202,6 +202,8 @@ def build_lead(envelope: dict, tg_fields: dict) -> dict:
     answers = envelope.get("data") or {}
     user = tg_fields.get("user") or {}
     subjects = answers.get("subjects") or []
+    # предметы, по которым лид уже занимается у нас: только у ответивших «Уже в Умскул»
+    current = answers.get("current_subjects") or []
     unit = UNIT_TEXT.get(answers.get("goal_unit"), "")
     priorities = answers.get("priorities") or []
 
@@ -232,6 +234,8 @@ def build_lead(envelope: dict, tg_fields: dict) -> dict:
         "recommendation": answers.get("recommendation"),
         "subject_ids": [s.get("id") for s in subjects],
         "subjects": ", ".join(str(s.get("name")) for s in subjects),
+        "current_subject_ids": [s.get("id") for s in current],
+        "current_subjects": ", ".join(str(s.get("name")) for s in current),
         "goals_text": ", ".join(f"{s.get('name')} — {s.get('goal')}" for s in subjects),
         "subjects_count": len(subjects),
         "filled_at": answers.get("ts"),

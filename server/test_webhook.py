@@ -148,6 +148,25 @@ class BuildLead(unittest.TestCase):
         self.assertNotIn("priorities", params)
         self.assertEqual(params["subjects"], "Пока не знаю")
 
+    def test_current_subjects_only_for_existing_students(self):
+        # обычный лид: поля о текущих занятиях пустые и в сценарий не уезжают
+        params = to_params(build_lead(self.envelope, {}))
+        self.assertNotIn("current_subjects", params)
+
+        envelope = json.loads(json.dumps(self.envelope))
+        envelope["data"]["preparation"] = "umschool"
+        envelope["data"]["current_subjects"] = [
+            {"id": "soc", "name": "Обществознание"},
+            {"id": "hist", "name": "История"},
+        ]
+        lead = build_lead(envelope, {})
+        self.assertEqual(lead["current_subject_ids"], ["soc", "hist"])
+        self.assertEqual(lead["current_subjects"], "Обществознание, История")
+        self.assertEqual(lead["preparation_text"], "Уже в Умскул")
+        params = to_params(lead)
+        self.assertEqual(params["current_subjects"], "Обществознание, История")
+        self.assertEqual(params["current_subject_ids"], "soc,hist")
+
     def test_school_preparation_label(self):
         envelope = json.loads(json.dumps(self.envelope))
         envelope["data"]["preparation"] = "school"

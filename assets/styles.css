@@ -198,24 +198,14 @@ button, input { font: inherit; color: inherit; }
 /* в Telegram кнопку рисует сам клиент — липкий футер не нужен */
 body.native-cta .screen { padding-bottom: 28px; }
 
+/* Одновременно на экране всегда один шаг: предыдущий удаляется сразу,
+   поэтому анимация нужна только на появление. */
 .step { will-change: transform, opacity; }
-.step--leaving {
-  position: absolute;
-  top: 6px;
-  left: var(--pad);
-  right: var(--pad);
-  pointer-events: none;
-}
 
 @keyframes enterRight { from { opacity: 0; transform: translate3d(28px, 0, 0); } to { opacity: 1; transform: none; } }
 @keyframes enterLeft  { from { opacity: 0; transform: translate3d(-28px, 0, 0); } to { opacity: 1; transform: none; } }
-@keyframes leaveLeft  { from { opacity: 1; transform: none; } to { opacity: 0; transform: translate3d(-28px, 0, 0); } }
-@keyframes leaveRight { from { opacity: 1; transform: none; } to { opacity: 0; transform: translate3d(28px, 0, 0); } }
-
 .step--enter-fwd  { animation: enterRight .34s var(--ease) both; }
 .step--enter-back { animation: enterLeft  .34s var(--ease) both; }
-.step--leave-fwd  { animation: leaveLeft  .24s var(--ease) both; }
-.step--leave-back { animation: leaveRight .24s var(--ease) both; }
 
 /* Заголовки шага */
 .step__eyebrow {
@@ -693,31 +683,29 @@ body.native-cta .screen { padding-bottom: 28px; }
 .summary__key { font-size: 13px; color: var(--muted); flex: none; width: 108px; padding-top: 1px; }
 .summary__val { font-weight: 600; font-size: 15px; flex: 1; }
 
-.plan {
-  margin-top: 16px;
-  padding: 18px;
-  border-radius: var(--radius-lg);
-  background: linear-gradient(140deg, #1E1A17 0%, #14110F 100%);
-  color: #fff;
-  box-shadow: var(--shadow-2);
-  animation: pop .5s var(--ease) .4s both;
+/* Отбивка: экран-реакция на ответ — 5–6 класс, действующий ученик */
+.notice__list {
+  margin: 18px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 10px;
 }
-/* на тёмном фоне чёрная карточка сливается — оставляем поверхность с рамкой */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-scheme="light"]) .plan {
-    background: var(--surface);
-    border: 2px solid var(--brand);
-  }
-}
-:root[data-scheme="dark"] .plan {
+.notice__item {
+  display: flex;
+  gap: 10px;
+  padding: 13px 15px;
+  border-radius: var(--radius);
   background: var(--surface);
-  border: 2px solid var(--brand);
+  border: 1px solid var(--line);
+  font-size: 14.5px;
+  line-height: 1.4;
 }
-
-.plan__title { font-weight: 800; font-size: 18px; letter-spacing: -.02em; margin-bottom: 10px; }
-.plan__list { margin: 0; padding: 0; list-style: none; display: grid; gap: 9px; }
-.plan__item { display: flex; gap: 9px; font-size: 14.5px; opacity: .95; }
-.plan__item::before { content: "✦"; opacity: .8; }
+.notice__item::before {
+  content: "✦";
+  color: var(--brand);
+  flex: none;
+}
 
 .note {
   margin-top: 14px;
