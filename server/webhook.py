@@ -103,6 +103,12 @@ PREP_TEXT = {
 }
 UNIT_TEXT = {"score": "баллы", "mark": "оценка"}
 TRACK_TEXT = {"express": "Экспресс-диагностика", "full": "Подробная диагностика"}
+# junior — анкета оборвана на 5–6 классе, лид уведён в канал средней школы;
+# по этому полю сценарий отличает такие лиды от полностью заполненных анкет
+OUTCOME_TEXT = {
+    "completed": "Анкета заполнена",
+    "junior": "5–6 класс, средняя школа",
+}
 LEVEL_TEXT = {
     "gaps": "Есть западающие темы",
     "structure": "Нет структуры в знаниях",
@@ -210,6 +216,8 @@ def build_lead(envelope: dict, tg_fields: dict) -> dict:
     return {
         "track": answers.get("track"),
         "track_text": TRACK_TEXT.get(answers.get("track"), ""),
+        "outcome": answers.get("outcome") or "completed",
+        "outcome_text": OUTCOME_TEXT.get(answers.get("outcome") or "completed", ""),
         "telegram_id": user.get("id"),
         "telegram_username": user.get("username"),
         "telegram_name": " ".join(

@@ -138,23 +138,31 @@
   ];
 
   /**
+   * 5–6 класс — не наш сегмент: анкета на этом обрывается, и мы отдаём
+   * ссылку на канал средней школы. Ответы всё равно уходят в CRM
+   * с пометкой outcome=junior, чтобы лид не потерялся.
+   */
+  var JUNIOR = {
+    grades: [5, 6],
+    channel: 'https://t.me/liyamiddleschool',
+    channelName: '@liyamiddleschool',
+    eyebrow: '🎈 Средняя школа',
+    title: 'Для 5–6 класса у нас отдельный проект',
+    lead: 'Подготовки к экзамену здесь ещё нет, поэтому и занятия другие. Всё про среднюю школу — расписание, форматы и набор — в отдельном канале.',
+    items: [
+      'Занятия по школьной программе, без гонки за баллами',
+      'Анонсы наборов и открытые уроки',
+      'Материалы для 5–6 класса'
+    ],
+    cta: 'Перейти в канал'
+  };
+
+  /**
    * Тексты отбивок — экранов-реакций на ответ. Формулировки черновые:
    * правьте здесь, трогать код шагов для этого не нужно.
-   *   junior — выбран 5 или 6 класс;
    *   client — «Уже в Умскул», перед уточнением текущих предметов.
    */
   var NOTICE_TEXT = {
-    junior: {
-      eyebrow: '🎈 Младшие классы',
-      title: 'Для 5–6 класса программа устроена иначе',
-      lead: 'Здесь ещё нет экзамена, поэтому и подготовка другая: короче занятия, больше разбора школьной программы и упор на интерес к предмету.',
-      items: [
-        'Занятия по школьной программе, а не по формату экзамена',
-        'Спокойный темп — без гонки за баллами',
-        'Менеджер расскажет про набор и подберёт группу'
-      ],
-      cta: 'Понятно, продолжим'
-    },
     client: {
       eyebrow: '🧡 Вы уже с нами',
       title: 'Отлично, вы уже занимаетесь в Умскул',
@@ -183,7 +191,7 @@
   };
 
   // Экраны-отбивки: это не вопросы, поэтому в счётчик прогресса они не попадают
-  var NOTICES = ['junior', 'client'];
+  var NOTICES = ['client'];
 
   function isNotice(id) { return NOTICES.indexOf(id) > -1; }
 
@@ -199,10 +207,11 @@
    */
   function steps() {
     var list = (TRACK_STEPS[state.track] || TRACK_STEPS.full).slice();
-    if (state.grade === 5 || state.grade === 6) insertAfter(list, 'grade', ['junior']);
     if (state.prep === 'umschool') insertAfter(list, 'prep', ['client', 'current']);
     return list;
   }
+
+  function isJuniorGrade(grade) { return JUNIOR.grades.indexOf(grade) > -1; }
 
   function total() { return steps().length; }
 
@@ -245,7 +254,7 @@
   }
 
   var state = {
-    view: 'quiz', // quiz | menu | section
+    view: 'quiz', // quiz | menu | section | junior
     section: null, // id открытого раздела меню
     step: -1, // -1 = интро, 0..total()-1 = вопросы, total() = результат
     track: null, // express | full
@@ -258,6 +267,7 @@
     goals: {},
     prep: null,
     currentSubjects: [], // по каким предметам уже занимается в Умскул
+    outcome: null, // junior — анкета оборвана на 5–6 классе
     sent: false,
     busy: false,
     error: null
@@ -497,6 +507,8 @@
           persist();
           refreshSelection(grid, '.grade', String(g), 'grade--selected');
           syncCta();
+          // 5–6 класс дальше по анкете не идёт — уводим в канал средней школы
+          if (isJuniorGrade(g)) { setTimeout(goJunior, 240); return; }
           setTimeout(next, 220);
         }
       }, [
@@ -857,8 +869,43 @@
     };
   }
 
-  function stepJunior() { return notice('junior'); }
   function stepClient() { return notice('client'); }
+
+  /**
+   * Тупиковый экран для 5–6 класса: анкета дальше не идёт, вместо результата —
+   * ссылка на канал средней школы. Кнопка «назад» оставлена на случай промаха
+   * по классу.
+   */
+  function stepJunior() {
+    return {
+      node: h('div', { class: 'step' }, [
+        h('span', { class: 'step__eyebrow', text: JUNIOR.eyebrow }),
+        h('h1', { class: 'step__title', text: JUNIOR.title }),
+        h('p', { class: 'step__subtitle', text: JUNIOR.lead }),
+        h('ul', { class: 'notice__list stagger' }, JUNIOR.items.map(function (text, i) {
+          return h('li', { class: 'notice__item', style: '--i:' + i, text: text });
+        })),
+        h('p', { class: 'note', text: 'Канал средней школы: ' + JUNIOR.channelName })
+      ]),
+      cta: JUNIOR.cta,
+      valid: true,
+      junior: true
+    };
+  }
+
+  function openJuniorChannel() {
+    haptic('light');
+    if (inTelegram && typeof tg.openTelegramLink === 'function') tg.openTelegramLink(JUNIOR.channel);
+    else window.open(JUNIOR.channel, '_blank', 'noopener');
+  }
+
+  /** Обрываем анкету и отдаём ссылку; ответы уходят в CRM в фоне. */
+  function goJunior() {
+    state.outcome = 'junior';
+    state.view = 'junior';
+    sendQuietly();
+    render(1);
+  }
 
   /** Только для тех, кто уже занимается: по каким предметам он с нами. */
   function stepCurrent() {
@@ -1139,7 +1186,7 @@
   var BUILDERS = {
     role: stepRole, grade: stepGrade, subjects: stepSubjects, level: stepLevel,
     goal: stepGoal, priorities: stepPriorities, online: stepOnline, prep: stepPrep,
-    junior: stepJunior, client: stepClient, current: stepCurrent
+    client: stepClient, current: stepCurrent
   };
 
   /* -------------------------------------------------------- утилиты UI -- */
@@ -1167,6 +1214,7 @@
     // режим меню не зависит от шага анкеты, поэтому проверяется первым
     if (state.view === 'menu') return stepMenu();
     if (state.view === 'section') return stepSection();
+    if (state.view === 'junior') return stepJunior();
     if (state.step === -1) return stepIntro();
     if (state.step > total()) return stepSent();
     if (state.step === total()) return stepResult();
@@ -1201,10 +1249,12 @@
 
   function syncChrome() {
     if (state.view !== 'quiz') {
+      // с тупика для 5–6 класса и из раздела меню есть куда вернуться
+      var canGoBack = state.view === 'section' || state.view === 'junior';
       el.progress.hidden = true;
-      el.back.hidden = state.view !== 'section';
+      el.back.hidden = !canGoBack;
       if (inTelegram && tg.BackButton) {
-        if (state.view === 'section') tg.BackButton.show(); else tg.BackButton.hide();
+        if (canGoBack) tg.BackButton.show(); else tg.BackButton.hide();
       }
       return;
     }
@@ -1285,6 +1335,7 @@
     var valid = typeof current.valid === 'function' ? current.valid() : current.valid;
     if (!valid) { haptic('rigid'); return; }
 
+    if (state.view === 'junior') { openJuniorChannel(); return; }
     if (state.view === 'section') { backToMenu(); return; }
     if (state.view === 'menu') { if (inTelegram) tg.close(); return; }
 
@@ -1306,6 +1357,14 @@
 
   function back() {
     if (state.busy) return;
+    // из тупика возвращаемся к выбору класса — вдруг промахнулись
+    if (state.view === 'junior') {
+      state.view = 'quiz';
+      state.outcome = null;
+      haptic('light');
+      render(-1);
+      return;
+    }
     if (state.view === 'section') { backToMenu(); return; }
     if (state.view === 'menu') { if (inTelegram) tg.close(); return; }
     if (state.step > total()) return;
@@ -1327,6 +1386,8 @@
       v: 2,
       source: 'umskul_qualification',
       track: state.track || 'full',
+      // junior — анкета прервана на 5–6 классе, ответов дальше класса нет
+      outcome: state.outcome || 'completed',
       role: state.role,
       grade: state.grade,
       exam: exam,
@@ -1380,6 +1441,22 @@
       localStorage.setItem(DONE_KEY, new Date().toISOString());
     } catch (e) { /* no-op */ }
     if (inTelegram && typeof tg.disableClosingConfirmation === 'function') tg.disableClosingConfirmation();
+  }
+
+  /**
+   * Отправка «в фоне»: лид с 5–6 классом всё равно нужен в CRM, но экран
+   * с ссылкой на канал не должен зависеть от того, дошёл ли запрос.
+   * Ошибки только логируем — пользователю показывать нечего.
+   */
+  function sendQuietly() {
+    if (state.sent || transport() !== 'http') return;
+    state.sent = true;
+    fetch(cfg.submitUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(envelope()),
+      keepalive: true
+    }).catch(function (err) { console.warn('лид не ушёл:', err); });
   }
 
   function submit() {

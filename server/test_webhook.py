@@ -148,6 +148,21 @@ class BuildLead(unittest.TestCase):
         self.assertNotIn("priorities", params)
         self.assertEqual(params["subjects"], "Пока не знаю")
 
+    def test_junior_outcome_marks_interrupted_quiz(self):
+        # обычная анкета помечается как заполненная, даже если поля outcome нет
+        lead = build_lead(self.envelope, {})
+        self.assertEqual(lead["outcome"], "completed")
+
+        envelope = {"data": {"track": "full", "outcome": "junior", "role": "parent", "grade": 6}}
+        lead = build_lead(envelope, {})
+        self.assertEqual(lead["outcome"], "junior")
+        self.assertEqual(lead["outcome_text"], "5–6 класс, средняя школа")
+        params = to_params(lead)
+        # по этому параметру сценарий отличает оборванную анкету от полной
+        self.assertEqual(params["outcome"], "junior")
+        self.assertEqual(params["grade"], "6")
+        self.assertNotIn("subjects", params)
+
     def test_current_subjects_only_for_existing_students(self):
         # обычный лид: поля о текущих занятиях пустые и в сценарий не уезжают
         params = to_params(build_lead(self.envelope, {}))
