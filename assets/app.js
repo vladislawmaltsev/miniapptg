@@ -82,6 +82,15 @@
     ]
   };
 
+  /**
+   * В 7–8 классе экзамена ещё нет, и набор предметов свой для каждого класса —
+   * порядок здесь и есть порядок карточек на экране.
+   */
+  var SCHOOL_SUBJECTS = {
+    7: ['math', 'rus', 'phys', 'hist', 'bio'],
+    8: ['math', 'rus', 'phys', 'hist', 'bio', 'inf', 'chem', 'eng']
+  };
+
   // Доступен в любом наборе предметов: ученик ещё не определился с экзаменами
   var SUBJECT_UNKNOWN = { id: 'unknown', name: 'Пока не знаю', emoji: '🤔' };
   Object.keys(SUBJECTS).forEach(function (key) {
@@ -345,12 +354,30 @@
 
   function currentExam() { return examType(state.grade); }
 
-  function subjectList() { return SUBJECTS[currentExam()]; }
+  function subjectList() {
+    var exam = currentExam();
+    var ids = exam === 'school' ? SCHOOL_SUBJECTS[state.grade] : null;
+    if (!ids) return SUBJECTS[exam];
+    return ids.map(function (id) {
+      var catalog = SUBJECTS.school;
+      for (var i = 0; i < catalog.length; i++) if (catalog[i].id === id) return catalog[i];
+      return null;
+    }).filter(Boolean).concat([SUBJECT_UNKNOWN]);
+  }
 
   function subjectById(id) {
     var list = subjectList();
     for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
     return null;
+  }
+
+  /** Убирает выбор предметов, которых нет в наборе текущего класса. */
+  function pruneSubjects() {
+    state.subjects = state.subjects.filter(function (id) { return !!subjectById(id); });
+    state.currentSubjects = state.currentSubjects.filter(function (id) { return !!subjectById(id); });
+    Object.keys(state.goals).forEach(function (id) {
+      if (!subjectById(id)) delete state.goals[id];
+    });
   }
 
   // Единица измерения цели: баллы для ЕГЭ, оценка для ОГЭ и школы
@@ -503,6 +530,8 @@
           state.grade = g;
           // сменился тип экзамена — набор предметов другой, старый выбор не подходит
           if (prevExam && prevExam !== examType(g)) { state.subjects = []; state.goals = {}; }
+          // внутри школьной ветки набор тоже разный: 7 класс уже отвечает
+          pruneSubjects();
           haptic('select');
           persist();
           refreshSelection(grid, '.grade', String(g), 'grade--selected');
@@ -547,7 +576,7 @@
         : 'Выбрано: ' + n + ' ' + plural(n, ['предмет', 'предмета', 'предметов']);
     }
 
-    var chips = h('div', { class: 'chips stagger' }, SUBJECTS[exam].map(function (s, i) {
+    var chips = h('div', { class: 'chips stagger' }, subjectList().map(function (s, i) {
       var node = h('button', {
         class: 'chip' + (state.subjects.indexOf(s.id) > -1 ? ' chip--selected' : ''),
         type: 'button',
@@ -591,7 +620,10 @@
     return {
       node: h('div', { class: 'step' }, [
         h('span', { class: 'step__eyebrow', text: '📚 ' + (exam === 'school' ? 'Предметы' : EXAM_LABEL[exam]) }),
-        h('h1', { class: 'step__title', text: who('Что будешь сдавать?', 'Что будет сдавать ребёнок?') }),
+        // в 7–8 классе сдавать пока нечего — спрашиваем про интерес к подготовке
+        h('h1', { class: 'step__title', text: exam === 'school'
+          ? 'По каким предметам интересует подготовка?'
+          : who('Что будешь сдавать?', 'Что будет сдавать ребёнок?') }),
         chips,
         counter
       ]),
